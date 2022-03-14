@@ -1,7 +1,7 @@
 # Barnby_etal_ReversalLearning
 Assessment of reversal learning across probabilistic and social inference tasks.
 
-## Move to the 'master' branch for all code and data
+### Move to the 'master' branch for all code and data
 
 ## Summary
 
