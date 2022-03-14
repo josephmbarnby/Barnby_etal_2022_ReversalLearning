@@ -2,7 +2,7 @@
 Assessment of reversal learning across probabilistic and social inference tasks.
 
 The preprint can be found here:
-![Experimental Design](Figure1_SRDP.png)
+![Experimental Design](Figure1_SDRP.png)
 
 # Computational Models
 
