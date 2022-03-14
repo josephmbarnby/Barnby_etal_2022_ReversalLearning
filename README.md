@@ -1,4 +1,4 @@
-# Barnby, Mehta & Moutoussis 2022; ReversalLearning
+# Barnby, Mehta & Moutoussis 2022; Reversal Learning
 Assessment of reversal learning across probabilistic and social inference tasks.
 
 ### Move to the 'master' branch for all code and data
