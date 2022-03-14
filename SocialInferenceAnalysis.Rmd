@@ -1,0 +1,1594 @@
+---
+title: "serial Reversal Dictator (belief-based)"
+author: "Michael and Joe"
+date: "17 Nov 2020 onwards"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### construct the core dataframe
+Here we set the working dir, and loading the key data.
+Load the key libraries and also do opar=par() to restore graphics if need be
+
+```{r load_data_and_libraries, include=FALSE}
+
+library(matlab)    # This provides some convenient matlab/octave functions
+library(R.matlab)  # Functions for handling mat files etc.
+library(Hmisc)
+library(ppcor)
+library(tidyverse)
+library(foreach)
+library(doParallel)
+library(tidyquant)
+
+opar = par()
+
+### source the custom fucntions
+try(source("SocialInferenceModels.R"))
+
+### Read data
+try(Dictator_20model <- read.csv('Data/DictatorClean_Repo.csv') %>% dplyr::select(-X)) 
+
+library(dplyr)
+
+alld_20 <- Dictator_20model %>% 
+  mutate(decision = recode(decision,
+                           UNFAIR = 0,
+                           FAIR = 0.5))
+
+# Replace attribution data with the normalized versions.
+alld_20 <- alld_20 %>%
+  group_by(Trial) %>%
+  mutate(
+ HI = HI/100,
+ SI = SI/100
+)
+
+nontask <- alld_20[,c(1, 6, 9, 12:21)] %>%
+  arrange(ID) %>%
+  distinct()
+
+IDs <- alld_20[,c(1)] %>%
+  arrange(ID) %>%
+  distinct() 
+
+task <- alld_20 %>%
+  arrange(ID) %>%
+  dplyr::select(ID, decision, HI, SI)
+
+task        <-  base::split(task %>% arrange(ID), f = task$ID)  
+
+#create multiple matrices of 'resp' argument in L0 for each participant
+alld = list(); 
+
+d <- matrix(NA,20,3); colnames(d) <- c('ret','hi','si');
+
+for (ptN in 1:nrow(IDs)){ #create a list with each participant matrix
+
+    alld[[ptN]] <- list();
+    alld[[ptN]][[2]] <- IDs[ptN,]; 
+    alld[[ptN]][[3]] <- nontask[ptN, 2:13];  # handy rest of data.
+    names(alld[[ptN]]) <- c('d','ID','nontask')
+
+    d <- NA*d;  # clear the decks for good measure
+    
+    alld[[ptN]][[1]] <- task[[ptN]]; 
+}
+
+try(save(alld, file="alld.RData"))
+
+# If prep for matlab
+
+matListLowLow   <- list()
+matListHighHigh <- list()
+matListLowHigh  <- list()
+matListHighLow  <- list()
+
+for (i in 1:length(alld)){
+  if(        alld[[i]][[3]]$Persec<=3.66&& alld[[i]][[3]]$ICARTot > 5){
+   matListLowHigh[[i]]    <- as.data.frame(alld[[i]][[1]][,c(2,3:5)])
+  } else if (alld[[i]][[3]]$Persec<=3.66&& alld[[i]][[3]]$ICARTot <= 5){
+    matListLowLow[[i]]    <- as.data.frame(alld[[i]][[1]][,c(2,3:5)])
+  } else if (alld[[i]][[3]]$Persec> 3.66&& alld[[i]][[3]]$ICARTot  > 5){
+  matListHighHigh[[i]]    <- as.data.frame(alld[[i]][[1]][,c(2,3:5)])
+  } else if (alld[[i]][[3]]$Persec> 3.66&& alld[[i]][[3]]$ICARTot <= 5){
+   matListHighLow[[i]]    <- as.data.frame(alld[[i]][[1]][,c(2,3:5)])
+  }
+}
+
+matSavLPLI <- do.call(rbind, matListLowLow)
+matSavHPHI <- do.call(rbind, matListHighHigh)
+matSavLPHI <- do.call(rbind, matListLowHigh)
+matSavHPLI <- do.call(rbind, matListHighLow)
+
+IDtoid <- function(x){
+NumMap        <- 1:length(unique(x$ID))
+names(NumMap) <- unique(x$ID)
+x$id          <- NumMap[x$ID]
+return(x)
+}
+
+matSavLPLI<-IDtoid(matSavLPLI); print(nrow(matSavLPLI)/20)
+matSavHPHI<-IDtoid(matSavHPHI); print(nrow(matSavHPHI)/20)
+matSavLPHI<-IDtoid(matSavLPHI); print(nrow(matSavLPHI)/20)
+matSavHPLI<-IDtoid(matSavHPLI); print(nrow(matSavHPLI)/20) # no 3 is dodgy!
+
+###############
+#####LP      HP
+#LI  259     138
+#HI  219     77
+#Ma  478     215
+
+write.csv(matSavLPLI, 'matSavLPLI.csv')
+write.csv(matSavHPHI, 'matSavHPHI.csv')
+write.csv(matSavHPLI, 'matSavHPLI.csv')
+write.csv(matSavLPHI, 'matSavLPHI.csv')
+
+
+```
+
+# Test
+
+```{r HISIdemoRun, echo=FALSE}
+
+# Fair-first toy data
+toyDf <- c(0.50, 0.00, 0.50, 0.00, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.00, 0.00, 0.50, 0.00, 0.50, 0.00, 0.00, 0.00, 0.00, 0.00, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.40, 0.40, 0.40, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.65, 0.65, 0.65, 0.80, 0.80, 0.80, 0.80, 0.80, 0.80, 0.80)
+toyDf <- matrix(toyDf,20,3); colnames(toyDf) <- c('ret','hi','si')
+
+# Unfair-first tody data
+toyDu <- c(0.5, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.5, 0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.45, 0.45, 0.45, 0.45, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.7, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.8, 0.8, 0.8, 0.75, 0.70, 0.7, 0.7, 0.65, 0.65, 0.65, 0.65, 0.65, 0.65)
+toyDu <- matrix(toyDu,20,3); colnames(toyDu) <- c('ret','hi','si')
+
+# rem double-eta param vector is of the form 
+#         c(pHI0, uHI0,pSI0,uSI0,upi,            eta/etaHI, etaSI)
+testpar  <- c(0.4, 2,   0.75,2,   1,                0.75        ); 
+testparb <- c(0.40,2.00,0.75,2.00,1,-1.00,1.00,0.50,0.75); 
+
+tn = 10; 
+blkn = 2;
+test <- infHISIll_20b(testpar,   toyDf,details = 1, plots = 1)
+test2 <- infHISIll_20d(parms = testparb,d = toyDf,details = 1,  sim_only = 1, tn = 10, phase = 2)
+
+plot(0:(tn*blkn),test$evo[,'HImode'],ylim=c(0,1),col='green4',t='b',pch=19,
+     xlab='(at end of) trial',
+     ylab='modal selfishness (gold) or harm intent (green)',
+     main = 'Location of peak attribution belief, test')
+lines(0:(tn*blkn),test$evo[,'SImode'],ylim=c(0,1),col='gold3',t='b',pch=19)
+plot(0:(tn*blkn),test2$evo[,'HImode'],ylim=c(0,1),col='green4',t='b',pch=19,
+     xlab='(at end of) trial',
+     ylab='modal selfishness (gold) or harm intent (green)',
+     main = 'Location of peak attribution belief, test2')
+lines(0:(tn*blkn),test2$evo[,'SImode'],ylim=c(0,1),col='gold3',t='b',pch=19)
+
+```
+
+# Testing the effect of changing the order of the randomized orders in both order iterations
+
+```{r  mixedblockorderdemo, echo=FALSE, include=TRUE}
+toyD1 = toyDf;
+toyD2 = toyDf; toyD2[1:20,1] <- c(rep(c(1,0),2),rep(1,6), rep(c(1,0),2),rep(0,6)) * 0.5
+
+test1 <- infHISIll_20d(testparb,toyD1,details = 1, plots = 0)
+test2 <- infHISIll_20b(testpar,toyD2,details = 1, plots = 1)
+
+Nb = 9
+# Plot policy after trial 6, i.e. after the mixed order,
+# partially fair block
+# the very start to after partner 3 :
+heatmap( test1$policy[,,7],Rowv=NA, Colv=NA, col = heat.colors(128), scale="none", 
+         margins=c(4,8),asp=1,labRow=0:(Nb-1),labCol=0:(Nb-1), 
+         main = paste('\n Policy after A= UNFAIR : FAIR '),xlab='HI',ylab='SI')
+
+heatmap( test2$policy[,,7],Rowv=NA, Colv=NA, col = heat.colors(128), scale="none", 
+         margins=c(4,8),asp=1,labRow=0:(Nb-1),labCol=0:(Nb-1), 
+         main = paste('\n Policy after B= FAIR : UNFAIR'),xlab='HI',ylab='SI')
+
+```
+
+
+```{r optimfit }
+
+# Petrturb a key param:
+genpar = c( 0.25, 1.00, 0.75, 0.20, 0.05, 0.75)
+testpar = genpar[1:6];           # We will keep last two params, other-policy-inv-precision and error rate, 
+testpar[1] = 1.5 * genpar[1];    # ... at their default values. 
+
+mPD <- Inf  # in future will be used to monitor how bad fits are.
+set = 1;    # set of fits to be attempted
+tryP = testpar;
+nlmprintlev = 1;  # how much info to spew out as nlm sweats away
+
+print(' ~~~~~~~~~~~~~~ running example optim fit ~~~~~~~~~~~~~~~~~~~~~' )
+print(paste('ptN:',ptN,';  fit attempt:', set));  
+print(paste('Init. Cond:', paste(round(tryP,3),collapse=',')));
+
+fit0 <- msLPhisi1a_20(ParM=tryP,datAr=toyD1,scbeta0=-1,details=1)
+
+# fit0[['scbeta0']]['bshape',c(2,4,5,7)] <- 2.8
+# fit0[['scbeta0']]['ashape',c(2,4,5,7)] <- 1.4
+
+fitAttempt <- NA;
+lobound <- as.numeric(fit0[['scbeta0']]['min',1:6])
+hibound <- as.numeric(fit0[['scbeta0']]['max',1:6])
+lobound <- (fit0[['scbeta0']]['min',1:6])+1e-4
+hibound <- (fit0[['scbeta0']]['max',1:6])-1e-4
+
+try( fitAttempt <- nlm(msLPhisi1a_20, tryP, toyD1, -1, print.level=nlmprintlev, iterlim=500) )
+
+print(paste('Parameter fit converged to lnL=-',round(msLPhisi1a_20(fitAttempt$estimate , toyD1),4),sep=''),quote = F)
+print(paste('                       and lnP=-',round(fitAttempt$minimum,4),' at value=',sep=''),quote = F)
+print(round(fitAttempt$estimate,4))
+print(round(genpar[1:6],4))
+
+```
+
+```{r Recovery}
+
+toyD <- as.data.frame(toyD1)
+toyD$hi <- c(rep(0.5, 5), rep(0.7, 5), rep(0.5, 5), rep(0.3, 5))
+toyD$si <- c(rep(0.7, 5), rep(0.7, 5), rep(0.6, 5), rep(0.5, 5))
+registerDoParallel(cores = 2)
+
+# FOR THE ALTERNATIVE BAYESIAN BELIEF MODEL #
+
+RecInfHISIb <- foreach(pt=1:200, .combine = rbind) %dopar% {
+  
+genpar <- c(mysamp(1, 0.5, 0.25, 0, 1, 1000), mysamp(1, 0, 2, 0, 5, 1000), #HI
+            mysamp(1, 0.5, 0.25, 0, 1, 1000), mysamp(1, 0, 2, 0, 5, 1000), #SI
+            mysamp(1, 0, 2, 0, 5, 1000),  #upi
+            mysamp(1, 0, 5, -15, 15, 1000),
+            mysamp(1, 0.5, 0.25, 0, 1, 1000),
+            mysamp(1, 0.5, 0.25, 0, 1, 1000),
+            mysamp(1, 0.5, 0.25, 0, 1, 1000))  #eta
+synD <- infHISIll_20d(genpar, toyD, details = 1) #generate synthetic data
+synD <- synD$evo 
+synD <- synD %>% 
+  as.data.frame() %>% 
+  filter(trial != 0)
+
+fitAttempt <- optim(genpar, msLPhisi_20d, datAr = as.data.frame(synD[,c(2, 9, 10)]), scbeta0 = -1)
+
+data.frame(
+  id = pt,
+pHI0gen = genpar[1],
+uHI0gen = genpar[2],
+pSI0gen = genpar[3],
+uSI0gen = genpar[4],
+upigen = genpar[5],
+w0gen  = genpar[6],
+wHI    = genpar[7],
+wSI    = genpar[8],
+etaHIgen = genpar[9],
+pHI0rec  = fitAttempt$par[1],
+uHI0rec  = fitAttempt$par[2],
+pSI0rec  = fitAttempt$par[3],
+uSI0rec  = fitAttempt$par[4],
+upirec   = fitAttempt$par[5],
+w0rec    = fitAttempt$par[6],
+wHIrec   = fitAttempt$par[7],
+wSIrec   = fitAttempt$par[8],
+etaHIrec = fitAttempt$par[9]
+)
+}
+
+corCheck <- cor(RecInfHISIb[, c(2:19)])
+pcorCheck <- ggcorrplot::cor_pmat(RecInfHISIb[, c(2:19)])
+ggcorrplot::ggcorrplot(corCheck[1:9, 10:18], lab = T, p.mat = pcorCheck[1:9, 10:18])
+
+
+# FOR THE ASSOCIATIVE MODELS #
+
+RecInfASSOC <- foreach(pt=1:100, .combine = rbind) %dopar% {
+dat    <- as.data.frame(alld[[pt]][[1]][,3:5])
+genpar <- round(mysamp(10, 0.5, 0.2, 0.1, 0.9, 100), 2)
+Fit1   <- optim(genpar, AssocWrapper, datAr = dat, scbeta0 = -1)
+synD   <- Assoc_model(Fit1$par, dat, detail = T) #generate synthetic data
+synD   <- synD$simD 
+Fit2   <- optim(Fit1$par, AssocWrapper, datAr = synD, scbeta0 = -1)
+
+data.frame(
+  id = pt,
+wHI0     = Fit1$par[1],
+wSI0     = Fit1$par[2],
+wHI      = Fit1$par[3],
+wSI      = Fit1$par[4],
+alphaHI  = Fit1$par[5],
+alphaSI  = Fit1$par[6],
+SD       = Fit1$par[7],
+ESVhi    = Fit1$par[8],
+ESVsi    = Fit1$par[9],
+eta      = Fit1$par[10],
+#salHI    = Fit1$par[11],
+#salSI    = Fit1$par[12],
+wHI0rec    = Fit2$par[1],
+wSI0rec    = Fit2$par[2],
+wHIrec     = Fit2$par[3],
+wSIrec     = Fit2$par[4],
+alphaHIrec = Fit2$par[5],
+alphaSIrec = Fit2$par[6],
+SDrec      = Fit2$par[7],
+ESVhirec   = Fit2$par[8],
+ESVsirec   = Fit2$par[9],
+etarec     = Fit2$par[10]
+#salHIrec   = Fit2$par[11],
+#salSIrec   = Fit2$par[12]
+)
+}
+
+corCheck <- cor(RecInfASSOC[, c(2:21)])
+pcorCheck <- ggcorrplot::cor_pmat(RecInfASSOC[, c(2:21)])
+ggcorrplot::ggcorrplot(corCheck[1:10, 11:20], lab = T, p.mat = pcorCheck[1:10, 11:20])
+
+```
+
+# Simulated Annealing
+
+```{r SANN real data fit, echo=FALSE, include=TRUE}
+# discovery sampling to avoid local minima
+n2do = 100
+ncores <- 5
+run_SANN = 0 # only set to 1 if you want to run the SANN again: NB - takes a long time
+
+if(run_SANN){
+# Bayes Belief Single Eta
+ 
+tryP <- c(0.5,   2,     0.5,   2,    0.5,   0.5)
+runSANN(par = tryP, fn = msLPhisi1a_20, n2do = 100,  ncores = ncores, filsav = 'resann')
+
+# Bayes Belief Dual Eta
+ 
+tryP <- c(0.5,   2,     0.5,   2,    0.5,   0.5,  0.5)
+runSANN(par = tryP, fn = msLPhisi1a_20, n2do = 100, ncores = ncores, filsav = 'resann_b')
+
+ 
+tryP <- c(0.5,   2,     0.5,   2,    0.5)
+runSANN(par = tryP, fn = msLPhisi1a_20_0eta, n2do = 100,  ncores = ncores, filsav = 'resann0eta')
+
+# Bayes Belief Single Eta, w0, wHI and wSI
+ 
+tryP <- c(0.5,   2,     0.5,   2,    0.5,  0, 0.5, 0.5, 0.5)
+runSANN(par = tryP, fn = msLPhisi_20d, n2do = 100,  ncores = ncores, filsav = 'resann_d')
+ 
+tryP <- c(0.5,   2,     0.5,   2,    0.5,  0, 0.5, 0.5, 0.5, 0.5)
+runSANN(par = tryP, fn = msLPhisi_20d, n2do = 100,  ncores = ncores, filsav = 'resann_d2eta')
+
+# Bayes Belief 0 Eta, w0, wHI and wSI
+tryP <- c(0.5,   2,     0.5,   2,    0.5,  0, 0.5, 0.5)
+runSANN(par = tryP, fn = msLPhisi_20d, n2do = 100,  ncores = ncores, filsav = 'resann_d0eta')
+
+# Assoc Model Single Eta, Dual alpha (HI, SI)
+tryP <- rep(0.5, 10)
+runSANN(par = tryP, fn = AssocWrapper, n2do = 100, ncores = ncores, filsav = 'ASSann')
+
+# Assoc Model Dual alpha (HI, SI), 0 eta
+tryP <- rep(0.5, 9)
+runSANN(par = tryP, fn = AssocWrapper, n2do = 100, ncores = ncores, filsav = 'ASSann0eta')
+
+# Assoc Model Single ESV, SPE, Alpha, Eta
+tryP <- rep(0.5, 8)
+runSANN(par = tryP, fn = AssocWrapper_singleESV, n2do = 100, ncores = ncores, filsav = 'ASSann1ESV')
+
+tryP <- rep(0.5, 7)
+runSANN(par = tryP, fn = AssocWrapper_singleESV, n2do = 100, ncores = ncores, filsav = 'ASSann1ESV0eta')
+
+# Assoc Model Single Eta, Single Alpha
+tryP <- rep(0.5, 9)
+runSANN(par = tryP, fn = AssocWrapper_singleAlpha, n2do = 100, ncores = ncores, filsav = 'ASSann_1Alpha')
+
+# Assoc Model Dual Eta, Dual Alpha
+tryP <- rep(0.5, 11)
+runSANN(par = tryP, fn = AssocWrapper, n2do = 100, ncores = ncores, filsav = 'ASSann_2Eta')
+
+# Assoc Model Single Eta, Dual Alpha (HI, SI), Salience (HI, SI)
+tryP <- rep(0.5, 12)
+runSANN(par = tryP, fn = AssocWrapper_salience, n2do = 100, ncores = ncores, filsav = 'ASSann_Sal')
+
+# Assoc Model Dual Alpha (HI, SI), Salience (HI, SI), no eta
+tryP <- rep(0.5, 11)
+runSANN(par = tryP, fn = AssocWrapper_salience, n2do = 100, ncores = ncores, filsav = 'ASSann_Sal0Eta')
+}
+
+```
+
+#Optim Fit
+
+```{r Optim Fit, echo=FALSE, include=TRUE}
+### Use nlm for second-pass datafit
+# first (re) import simulated-annealing fit :
+
+n2do   <- 100
+ncores <- 5
+run_optim = 0 # only set to 1 if you want to run OPTIM again.
+
+if(run_optim){
+tryP <- c(0.5,   2,     0.5,   2,    0.5,   0.5)
+sann2hisi <- read.csv("resann.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:7)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = msLPhisi1a_20, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'resnlm', wrapperType = -1)
+
+ 
+tryP <- c(0.5,   2,     0.5,   2,    0.5)
+sann2hisi <- read.csv("resann0eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:6)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = msLPhisi1a_20, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'resnlm0eta', wrapperType = -1)
+
+
+tryP <- c(0.5,   2,     0.5,   2,    0.5,   0.5, 0.5)
+sann2hisi <- read.csv("resann_b.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:8)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = msLPhisi1a_20, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'resnlm_b', wrapperType = -1)
+ 
+
+tryP <- c(0.5,   2,     0.5,   2,    0.5,  0, 0.5, 0.5, 0.5)
+sann2hisi <- read.csv("resann_d.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:10)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = msLPhisi_20d, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'resnlm_d', wrapperType = -1)
+
+
+tryP <- rep(0.5, 8)
+sann2hisi <- read.csv("resann_d0eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:9)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = msLPhisi_20d, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'resnlm_d0eta', wrapperType = -1)
+
+
+tryP <- rep(0.5, 10)
+sann2hisi <- read.csv("resann_d2eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:11)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = msLPhisi_20d, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'resnlm_d2eta', wrapperType = -1)
+
+
+tryP <- rep(0.5, 10)
+sann2hisi <- read.csv("ASSann.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:11)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSannNLM', wrapperType = -1)
+
+ 
+tryP <- rep(0.5, 9)
+sann2hisi <- read.csv("ASSann0eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:10)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSann0etaNLM', wrapperType = -1)
+
+ 
+tryP <- rep(0.5, 8)
+sann2hisi <- read.csv("ASSann1ESV.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:9)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper_singleESV, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSann_1ESV', wrapperType = -1)
+
+ 
+tryP <- rep(0.5, 7)
+sann2hisi <- read.csv("ASSann1ESV0eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:8)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper_singleESV, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSann_1ESV0eta', wrapperType = -1)
+
+ 
+tryP <- rep(0.5, 9)
+sann2hisi <- read.csv("ASSann_1Alpha.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:10)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper_singleAlpha, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSann1AlphaNLM', wrapperType = -1)
+
+ 
+tryP <- rep(0.5, 11)
+sann2hisi <- read.csv("ASSann_2Eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:12)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSann2EtaNLM', wrapperType = -1)
+
+
+tryP <- rep(0.5, 12)
+sann2hisi <- read.csv("ASSann_Sal.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:13)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper_salience, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSannSalNLM', wrapperType = -1)
+
+ 
+tryP <- rep(0.5, 11)
+sann2hisi <- read.csv("ASSann_Sal0Eta.csv")
+sann2hisi <- sann2hisi %>% arrange(ID) %>% dplyr::select(-X) %>% dplyr::select(1:12)
+sann2hisi <- sann2hisi[, colSums(is.na(sann2hisi)) != nrow(sann2hisi)]
+runOPTIM(par = tryP, fn = AssocWrapper_salience, n2do = n2do, sann2hisi = sann2hisi, ncores = ncores, filsav = 'ASSannSal0EtaNLM', wrapperType = -1)
+}
+
+```
+
+#Model Comparison
+
+```{r Model comparison}
+fitA <- read.csv("resnlm.csv"); 
+colnames(fitA)[3:8] <- c('one', 'two', 'three', 'four', 'five', 'six');
+fitA <- fitA %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(name = 'BB_1eta', model = 1, parms = 6) 
+fitB <- read.csv("resnlm_b.csv");
+colnames(fitB)[3:9] <- c('one', 'two', 'three', 'four', 'five', 'six', 'seven');
+fitB <- fitB %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(name = 'BB_2eta', model = 2, parms = 7) 
+fitC <- read.csv("resnlm_d.csv");
+colnames(fitC)[3:11] <- c('one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine');
+fitC <- fitC %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(name = 'BB_1eta_Ext', model = 3, parms = 9) 
+fitD <- read.csv("resnlm_d2eta.csv");
+colnames(fitD)[3:12] <- c('one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten');
+fitD <- fitD %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(name = 'BB_2eta_Ext', model = 4, parms = 10) 
+fitE <- read.csv("resnlm_d0eta.csv");
+colnames(fitE)[3:10] <- c('one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight');
+fitE <- fitE %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(name = 'BB_0eta_Ext', model = 5, parms = 8) 
+fitF <- read.csv("resnlm0eta.csv");
+colnames(fitF)[3:7] <- c('one', 'two', 'three', 'four', 'five');
+fitF <- fitF %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(name = 'BB_0eta', model = 6, parms = 5) 
+
+assA <- read.csv("ASSannNLM.csv"); 
+assA <- assA %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_1eta'); 
+assA$parms <- 10; assA$model = 7; 
+assB <- read.csv("ASSann_1ESV.csv"); 
+assB <- assB %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_1ESV'); 
+assB$parms <- 8; assB$model = 8; 
+assD <- read.csv("ASSann1AlphaNLM.csv"); 
+assD <- assD %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_1alpha'); 
+assD$parms <- 9;  assD$model = 10;
+assE <- read.csv("ASSann2EtaNLM.csv"); 
+assE <- assE %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_2eta'); 
+assE$parms <- 11; assE$model = 11;
+assF <- read.csv("ASSannSalNLM.csv");
+assF <- assF %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_Salience'); 
+assF$parms <- 12; assF$model = 12;
+assG <- read.csv("ASSannSal0EtaNLM.csv");
+assG <- assG %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_Salience0Eta'); 
+assG$parms <- 11; assG$model = 13;
+assH <- read.csv("ASSann0etaNLM.csv"); 
+assH <- assH %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_0eta'); 
+assH$parms <- 9; assH$model = 14; 
+assJ <- read.csv("ASSannSal0HISINLM.csv"); 
+assJ <- assJ %>% arrange(ID) %>% dplyr::select(-1) %>% mutate(ll = ifelse(ll <0, ll, -ll), name = 'Assoc_Salience0HISI'); 
+assJ$parms <- 8; assJ$model = 16; 
+
+fit_compare <- rbind(fitA, fitB, fitC, fitD,fitE, fitF, assA, assB, assD, assE, assF, assG, assH, assJ) 
+
+### Comparing models in scatter plots ###
+
+regular_models <- foreach(i = 1:15, .combine = rbind) %dopar% {
+  
+compare <- fit_compare %>%
+  filter(model == i) %>%
+  mutate(BIC = -2 * ll + log(20) * as.numeric(parms),
+         AIC = -2 * ll + 2 * as.numeric(parms))
+
+data.frame(
+  compare
+)
+}
+
+kruskal.test(BIC ~ model, data = regular_models)
+
+regular_models %>%
+  filter(ll != is.na(ll)) %>%
+  group_by(model) %>%
+  summarise(sumll = mean(ll),
+            names = name,
+            parms = parms,
+            BIC   = mean(BIC),
+            AIC   = mean(AIC),
+            .groups = 'keep') %>%
+  arrange(-BIC) %>%
+  distinct() 
+
+```
+
+#Simulate the model with MAP fitted models
+
+```{r test the model, include=TRUE, echo=TRUE}
+
+s1 <-simulateData(infHISIll_20b, 'resnlm', 6, 100, 6, 'BB')
+s2 <-simulateData(infHISIll_20b, 'resnlm_b', 6,100, 7, '2BB')
+s3 <-simulateData(infHISIll_20d, 'resnlm_d', 6, 100, 9, 'BB_Ext')
+s4 <-simulateData(infHISIll_20d, 'resnlm_d0eta', 6, 100, 8,  'BB_Ext0eta')
+s4b<-simulateData(infHISIll_20d, 'resnlm_d2eta', 6, 100, 10, 'BB_Ext2eta')
+s5 <-simulateData(infHISIll_20b, 'resnlm0eta', 6,100, 5, 'BB0eta')
+s6 <-simulateData(Assoc_model, 'ASSannNLM', 6,100,10, 'A-2alphaHISI')
+s7 <-simulateData(Assoc_model_singleESV, 'ASSann_1ESVNLM', 6,100, 8, 'A-1ESV')
+s9 <-simulateData(Assoc_model   , 'ASSann2EtaNLM', 6, 100,11, 'A-2Eta')
+s10<-simulateData(Assoc_model_singleAlpha, 'ASSann1AlphaNLM', 6,100, 9, 'A-1Alpha')
+s11<-simulateData(Assoc_model_salience, 'ASSannSalNLM', 6, 100,12, 'A-Salience')
+s12<-simulateData(Assoc_model_salience, 'ASSannSal0EtaNLM', 6,100, 11, 'A-Salience0Eta')
+s13<-simulateData(Assoc_model, 'ASSann0etaNLM', 6,100, 11, 'A-2alphaHISI0eta')
+s14<-simulateData(Assoc_model_singleESV, 'ASSann_1ESVNLM0eta', 6,100, 11, 'A-1ESV0eta')
+
+sAll <- rbind(s1, s2, s3, s4b, s5, s6, s7, s9, s10, s11, s12, s13, s14)
+sAll %>%
+  group_by(model) %>%
+  summarise(HIcor = cor(HI, HIsim),
+            SIcor = cor(SI, SIsim))
+
+rmse_df <- matrix(NA, 15, 3); colnames(rmse_df)<-c('RMSE', 'Coefficient', 'Model')
+sAll %>% mutate(model_num = recode(model, 
+                                   "BB" = 1, 
+                                   '2BB'= 2, 
+                                   'BB_Ext' = 3,
+                                   'BB_Ext2eta' = 4,
+                                   'BB0eta' = 5,
+                                   'A-2alphaHISI'=6, 
+                                   'A-1ESV'=7, 
+                                   'A-2alphaUFF'=8,
+                                   'A-2Eta'=9, 
+                                   'A-1Alpha'=10, 
+                                   'A-Salience'=11,
+                                   'A-Salience0Eta'=12,
+                                   'A-2alphaHISI0eta' = 13,
+                                   'A-1ESV0eta' = 14,
+                                   'A-Salience0HISI' = 15),
+                type = recode(model,
+                                   "BB" = 'BB', 
+                                   '2BB'= 'BB', 
+                                   'BB_Ext' = 'BB (Winning)',
+                                   'BB_Ext0eta' = 'BB',
+                                   'BB_Ext2eta' = 'BB',
+                                   'BB0eta' = 'BB',
+                                   'A-2alphaHISI'='Associative', 
+                                   'A-1ESV'='Associative (Winning)', 
+                                   'A-2alphaUFF'='Associative',
+                                   'A-2Eta'='Associative', 
+                                   'A-1Alpha'='Associative', 
+                                   'A-Salience'='Associative',
+                                   'A-Salience0Eta'='Associative',
+                                   'A-2alphaHISI0eta' = 'Associative',
+                                   'A-1ESV0eta' = 'Associative',
+                                   'A-Salience0HISI' = 'Associative')) -> sCor
+
+for (i in 1:15){
+sCor %>% filter(model_num == i) -> x
+lmrmse <- lm(scale(HI) ~ scale(HIsim), data = x)
+rmse <- sqrt((c(crossprod(lmrmse$residuals))/length(lmrmse$residuals)))
+rmse_df[i, 1:2] <- c(rmse, as.numeric(lmrmse$coefficients[2]))
+rmse_df[i,3]    <- x$model[1]
+}
+
+#Plot simulated data
+
+ggplot(sCor %>%
+         plyr::join(Dictator_20model %>% 
+                                  arrange(ID) %>% 
+                                  filter(Partner == "Human") %>%
+                                  dplyr::select(ID, Trial, Persec, ICARTot), 
+                                  by = c("ID", "Trial")) %>% 
+         pivot_longer(7:8, 'Attribution', values_to = 'Metric') %>%
+         filter(model_num %in% c(1:15)) %>%
+         mutate(PersecOrd = ifelse(Persec > 3.66, "High", 'Low')) %>%
+         filter(type %in% c('BB (Winning)', 'Associative (Winning)'))
+         ) + 
+  stat_summary(aes(Trial, Metric, linetype = Attribution), color = 'black',  size = 1, geom = 'line') +
+  stat_summary(aes(Trial, Metric, group = Attribution), fill = 'black',  size = 1, geom = 'ribbon', alpha = 0.5) +
+  stat_summary(aes(Trial, HIsim, color = type), geom = 'line')+
+  stat_summary(aes(Trial, SIsim, color = type), geom = 'line')+
+  scale_linetype_manual(name = 'True Attribution', values = c(1, 3))+
+  labs(x = 'Trial', y = 'Attribution')+
+  facet_wrap(~Order) +
+  tidybayes::theme_tidybayes()+
+  theme(axis.text = element_text(size = 14),
+        axis.title = element_text(size = 14),
+        strip.text.x = element_text(size = 14),
+        strip.background.x = element_blank())
+
+```
+
+# Simulate the models with CBM fitted models:
+
+```{r}
+
+CBMdatLL <- readMat('CBMfits/hbi_BBLL.mat')
+CBMdatHL <- readMat('CBMfits/hbi_BBHL.mat')
+CBMdatLH <- readMat('CBMfits/hbi_BBLH.mat')
+CBMdatHH <- readMat('CBMfits/hbi_BBHH.mat')
+
+library(tidyquant)
+
+modmet <- list(
+  exceedance = data.frame(
+    `BB0eta` = c(CBMdatLL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,1],
+             CBMdatHL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,1],
+             CBMdatLH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,1],
+             CBMdatHH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,1]),
+  `BB1eta` = c(CBMdatLL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,2],
+             CBMdatHL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,2],
+             CBMdatLH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,2],
+             CBMdatHH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,2]),
+    `BB2eta` = c(CBMdatLL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,3],
+             CBMdatHL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,3],
+             CBMdatLH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,3],
+             CBMdatHH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,3]),
+  `Associative` = c(CBMdatLL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,4],
+             CBMdatHL$cbm[,,1]$output[,,1]$protected.exceedance.prob[,4],
+             CBMdatLH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,4],
+             CBMdatHH$cbm[,,1]$output[,,1]$protected.exceedance.prob[,4]),
+  group  = c('LPLI', 'HPLI', 'LPHI', 'HPHI')),
+  frequency = data.frame(
+    `BB0eta` = c(CBMdatLL$cbm[,,1]$output[,,1]$model.frequency[,1],
+             CBMdatHL$cbm[,,1]$output[,,1]$model.frequency[,1],
+             CBMdatLH$cbm[,,1]$output[,,1]$model.frequency[,1],
+             CBMdatHH$cbm[,,1]$output[,,1]$model.frequency[,1]),
+  `BB1eta` = c(CBMdatLL$cbm[,,1]$output[,,1]$model.frequency[,2],
+             CBMdatHL$cbm[,,1]$output[,,1]$model.frequency[,2],
+             CBMdatLH$cbm[,,1]$output[,,1]$model.frequency[,2],
+             CBMdatHH$cbm[,,1]$output[,,1]$model.frequency[,2]),
+    `BB2eta` = c(CBMdatLL$cbm[,,1]$output[,,1]$model.frequency[,3],
+             CBMdatHL$cbm[,,1]$output[,,1]$model.frequency[,3],
+             CBMdatLH$cbm[,,1]$output[,,1]$model.frequency[,3],
+             CBMdatHH$cbm[,,1]$output[,,1]$model.frequency[,3]),
+  `Associative` = c(CBMdatLL$cbm[,,1]$output[,,1]$model.frequency[,4],
+             CBMdatHL$cbm[,,1]$output[,,1]$model.frequency[,4],
+             CBMdatLH$cbm[,,1]$output[,,1]$model.frequency[,4],
+             CBMdatHH$cbm[,,1]$output[,,1]$model.frequency[,4]),
+  group  = c('LPLI', 'HPLI', 'LPHI', 'HPHI')) 
+)
+
+colnames(modmet[[1]]) <- c('BB0eta', 'BB1eta', 'BB2eta', 'Associative', 'Group')
+colnames(modmet[[2]]) <- c('BB0eta', 'BB1eta', 'BB2eta', 'Associative', 'Group')
+
+ggpubr::ggarrange(
+  ggplot(
+modmet[[2]] %>%
+  pivot_longer(1:4, 'Model', values_to = 'Model Frequency')
+) +
+  
+  geom_col(aes(Group, `Model Frequency`, fill = Model), position = 'dodge') +
+  scale_fill_tq()+
+  labs(x = 'Group')+
+  theme_bw()+
+  theme(axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        legend.position = c(0.75, 0.75),
+        legend.background = element_rect(color ='black')),
+ggplot(
+modmet[[1]] %>%
+  pivot_longer(1:4, 'Model', values_to = 'Protected Exceedence Probability')
+) +
+  
+  geom_col(aes(Group, `Protected Exceedence Probability`, fill = Model), position = 'dodge') +
+  scale_fill_tq()+
+  labs(x = 'Group')+
+  theme_bw()+
+  theme(axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        legend.position = 'none'),
+nrow = 2)
+
+
+datLL <- cleanBB(CBMdatLL, matSavLPLI, i = 2); datLL$Group = 'LL'
+datHL <- cleanBB(CBMdatHL, matSavHPLI, i = 2); datHL$Group = 'HL'
+datLH <- cleanBB(CBMdatLH, matSavLPHI, i = 2); datLH$Group = 'LH'
+datHH <- cleanBB(CBMdatHH, matSavHPHI, i = 2); datHH$Group = 'HH'
+
+CBMfit <- rbind(datLL, datHL, datLH, datHH)
+
+```
+
+## Use selected model
+
+```{r Select model to be used}
+
+CBMsimDF <- CBMfit %>% dplyr::select(1:9, 11, 15) %>% distinct() %>% arrange(ID)
+CBMsimDF2eta <- CBMfit2eta %>% dplyr::select(1:10, 12, 16) %>% distinct() %>% arrange(ID)
+
+CBMsim <- foreach (i = 1:693, .combine = rbind) %dopar% {
+
+    test                <- infHISIll_20d(as.numeric(CBMsimDF[i,1:9]),
+                              as.matrix(alld[[i]][[1]][,3:5]),
+                              detail=T)
+    sumll               <- infHISIll_20d(as.numeric(CBMsimDF[i,1:9]),
+                                  as.matrix(alld[[i]][[1]][,3:5]))
+    data.frame(
+      ID       = CBMsimDF[i,'ID'],
+      id       = i,
+      Trial    = as.numeric(1:20),
+      ret      = as.numeric(test$evo[2:21,'ret']),
+      HIsim    = as.numeric(test$evo[2:21,'HIsim']),
+      SIsim    = as.numeric(test$evo[2:21,'SIsim']),
+      ll       = as.numeric(sumll),
+      HI       = as.numeric(test$evo[2:21,'HI']),
+      SI       = as.numeric(test$evo[2:21,'SI']),
+      pHI0     =  test$par[1],
+      uHI0     =  test$par[2],
+      pSI0     =  test$par[3],
+      uSI0     =  test$par[4],
+      uPi      =  test$par[5],
+      w0       =  test$par[6],
+      wHI      =  test$par[7],
+      wSI      =  test$par[8],
+      eta      =  test$par[9],
+      Order    =  alld[[i]][[3]][,'Order'],
+      Group    = CBMsimDF[i,'Group']
+    )
+
+  }
+
+#Split into list for recovery
+
+simulated_list <- split(CBMsim, CBMsim$ID)
+
+Recovery <- foreach (i = 1:length(simulated_list), .combine = rbind) %dopar% {
+  
+  uplim = 25 # ceiling 
+  
+               tryP <- as.numeric(simulated_list[[i]][1,10:18]);
+               data <- as.matrix(simulated_list[[i]][,c(4:6)])
+               
+                 for(j in 1:9){
+                   if (tryP[j] > uplim) {
+                     tryP[j] <- uplim-0.05
+                     }
+                 }
+               
+               fitAttempt <- NA; # clear the decks and attempt the new nlm fit
+               prm        <- tryP * NA;
+               L          <- NA;  
+             
+              fitAttempt  <- optim(fn= msLPhisi_20d, par = tryP, datAr = data, scbeta0 = -1)
+              try(prm     <- fitAttempt$par);
+                  
+               if(sum(is.na(prm))){               # if fit failed, revert to best up to now:
+                  prm <- as.numeric( simulated_list[[i]][1,10:18] );}
+                  
+              try(L       <- -infHISIll_20d(prm,data) );  # plain log-likelihood
+   
+  data.frame( ID        =  unlist(simulated_list[[i]][1,'ID']),
+               SIMpHI0  =  prm[1],
+	             SIMuHI0  =  prm[2],
+	             SIMpSI0  =  prm[3], 
+	             SIMuSI0  =  prm[4],
+	             SIMupi   =  prm[5],
+               SIMw0    =  prm[6], 
+               SIMwHI   =  prm[7],
+	             SIMwSI   =  prm[8],
+	             SIMeta   =  prm[9], 
+               pHI0     =  simulated_list[[i]][1,10],
+	             uHI0     =  simulated_list[[i]][1,11],
+	             pSI0     =  simulated_list[[i]][1,12], 
+	             uSI0     =  simulated_list[[i]][1,13],
+	             upi      =  simulated_list[[i]][1,14],
+               w0       =  simulated_list[[i]][1,15], 
+               wHI      =  simulated_list[[i]][1,16],
+	             wSI      =  simulated_list[[i]][1,17],
+	             eta      =  simulated_list[[i]][1,18], 
+	            ll        =  L
+              )
+ }
+
+colnames(Recovery) <- c('ID', 'Sim pHI0','Sim uHI0','Sim pSI0','Sim uSI0','Sim upi','Sim w0', 'Sim wHI','Sim wSI', 'Sim eta',
+                                  'pHI0',    'uHI0',    'pSI0',    'uSI0',    'upi',    'w0',     'wHI',    'wSI',     'eta', 'LL')
+
+recovery_plot <- round(cor(Recovery[,2:19]), 2)
+p.mat         <- ggcorrplot::cor_pmat(Recovery[,2:19])
+recovery_mat_plot  <- ggcorrplot::ggcorrplot(recovery_plot[10:18, 1:9], lab = T, p.mat = p.mat[10:18, 1:9])+
+  scale_x_discrete(labels = c(
+    upi = expression(paste('u', pi)),
+    eta = expression(paste(eta[dg]))
+  )) +
+  scale_y_discrete(labels = c(
+    `Sim upi` = expression(paste('Sim', ' ', 'u', pi)),
+    `Sim eta` = expression(paste('Sim', ' ', eta[dg]))
+  ))
+
+Dictator_w_parms <- plyr::join(Dictator_20model %>% 
+                                  arrange(ID) %>% 
+                                  filter(Partner == "Human") %>%
+                                  dplyr::select(ID, Trial, Reaction.Time:meanSI), 
+                               CBMsim %>% 
+                                 arrange(ID) %>% 
+                                 dplyr::select(-Order, -HI, -SI), 
+                               by = c("ID", "Trial")) %>%
+                    group_by(ID) %>%
+                    mutate(
+                      sumll = sum(ll)
+                    ) %>%
+                    dplyr::distinct()
+
+
+```
+
+#Model Comparison
+
+```{r Analysis and Visuals}
+
+#Figure S2: 
+
+#Density of parameters:
+ggplot(Dictator_w_parms %>%
+         pivot_longer(pHI0:eta, 'Parameter', values_to = 'Value'),
+       aes(Value))+
+  geom_jitter(aes(x = Value, y = Parameter), alpha = 0.5, position = position_nudge(y = -0.1))+
+  ggridges::geom_density_ridges2(aes(x = Value, y = Parameter, fill = Parameter), alpha = 0.7,
+                                 stat = "binline", bins = 100) +
+  scale_color_brewer(palette = 'Set1')+
+  facet_wrap(~Parameter, scales = 'free', nrow = 9)+
+  theme_minimal()+
+  theme(strip.background.x = element_blank(),
+        strip.text.x = element_blank(),
+        axis.text.y = element_text(size = 14), 
+        axis.title.y = element_blank(),
+        legend.position = 'none')
+
+Dictator_w_parms <- as.data.frame(Dictator_w_parms)
+
+#Model fit analysis (loglikihood by paranoia, overall sumll, and attributional correlations)#
+
+llPlot <- ggplot(Dictator_w_parms %>% 
+         dplyr::select(ll, Persec, ICARTot, ID) %>%
+         distinct()
+       ) + 
+  stat_summary(aes(Persec, ll)) + 
+  geom_smooth(aes(Persec, ll), method = 'lm') + 
+  ggpubr::stat_cor(aes(Persec, ll), method = 'spearman') + 
+  labs(y = 'Sum LogLikelihood', x = "Paranoia")+
+  geom_hline(yintercept = -87.88)
+
+llPlotICAR <- ggplot(Dictator_w_parms %>% 
+         dplyr::select(ll, Persec, ICARTot, ID) %>%
+         distinct()
+       ) + 
+  stat_summary(aes(ICARTot, ll)) + 
+  geom_smooth(aes(ICARTot, ll), method = 'lm') + 
+  ggpubr::stat_cor(aes(ICARTot, ll), method = 'spearman') + 
+  labs(y = 'Sum LogLikelihood', x = "ICAR Score")+
+  geom_hline(yintercept = -87.88)
+
+llDistPlot <- ggplot(Dictator_w_parms %>% 
+         dplyr::select(ll, Order) %>% 
+         distinct()
+       ) + 
+  geom_density(aes(ll, color= Order))+
+  geom_vline(xintercept = -87.88)+
+  labs(x = "Sum LogLikelihood", y = 'Density')
+
+simPlot <- ggplot(Dictator_w_parms %>%
+         mutate(
+           PersecLevel = ifelse(Persec > 3.88, "High", "Low"),
+           HIsim = HIsim * 100,
+           SIsim = SIsim * 100
+         )) +
+       geom_jitter(aes(HI, HIsim, colour = 'Harmful Intent'), alpha  = 0.05)+
+       geom_jitter(aes(SI, SIsim, colour = 'Self Interest'),  alpha = 0.05)+
+       geom_smooth(aes(HI, HIsim, colour = 'Harmful Intent'),  method = 'lm')+
+       geom_smooth(aes(SI, SIsim, colour = 'Self Interest'),  method = 'lm')+
+  ggpubr::stat_cor(aes(HI, HIsim, colour = 'Harmful Intent'), method = 'spearman', show.legend = F)+
+  ggpubr::stat_cor(aes(SI, SIsim, colour = 'Self Interest'),  method = 'spearman', label.y.npc = 0.75, show.legend = F)+
+  scale_color_manual(values = c('#DA7000','#7700DA'), name = "Attribution", guide = 'none')+
+  labs(x = 'Real Attribution', y = 'Simulated Attribution')+
+  facet_wrap(~Order)
+
+psych::describe(Dictator_w_parms$ll)
+
+simDat <- ggplot(Dictator_w_parms %>%
+           mutate(
+               HIsim = HIsim * 100,
+               SIsim = SIsim * 100
+           )) +
+    
+    stat_summary(aes(Trial, HI, color = "Harmful Intent", fill = 'Harmful Intent'),  geom = "ribbon", alpha = 0.7)+
+    stat_summary(aes(Trial, HI), geom = "line", linetype = 2)+
+    stat_summary(aes(Trial, HIsim), geom = "ribbon", fill  = 'grey', alpha = 0.3)+
+    stat_summary(aes(Trial, HIsim), geom = "line"  )+
+    stat_summary(aes(Trial, SI, color = 'Self Interest', fill = 'Self Interest', ), geom = "ribbon", alpha = 0.7)+
+    stat_summary(aes(Trial, SI), geom = "line", linetype = 2  )+
+    stat_summary(aes(Trial, SIsim), geom = "ribbon", fill  = 'grey', alpha = 0.3)+
+    stat_summary(aes(Trial, SIsim), geom = "line"  )+
+    labs(y = "Harmful Intent/ Self Interest")+
+    scale_color_manual(values = c('#DA7000','#7700DA'), guide = 'none')+
+    scale_fill_manual(values = c('#DA7000','#7700DA'), name = "Attribution")+
+    facet_wrap (~ Order, scales = 'free_y', nrow = 1) + 
+    tidybayes::theme_tidybayes()+
+    theme(
+        strip.background = element_blank(),
+        legend.box.background = element_rect(colour = "black"),
+        legend.position = 'bottom', 
+        legend.direction = 'horizontal'
+    )
+
+library(tidyquant)
+(llPlot | llPlotICAR | llDistPlot) / (simPlot | simDat) & 
+  plot_annotation(tag_levels = 'A') &
+  theme_tq() &
+  theme(axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        strip.text.x = element_text(size = 18))
+
+recovery_mat_plot
+
+```
+
+# Primary Regression analysis
+
+```{r}
+
+#Attributional change over time
+
+# Model S1a
+
+#unadjsuted
+confint(lme4::lmer(scale(HI) ~ scale(Persec) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+summary(lme4::lmer(scale(HI) ~ block * Order + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+confint(lme4::lmer(scale(HI) ~ block * Order + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+summary(lme4::lmer(scale(HI) ~ block * scale(Persec) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+confint(lme4::lmer(scale(HI) ~ block * scale(Persec) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+#adjusted
+model.compare(lme4::lmer(scale(HI) ~ Order * block + scale(Persec) + Age + Sex + scale(ICARTot) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+# Model S2a
+model.compare(lme4::lmer(scale(HI) ~ Order + scale(Persec) * block + Age + Sex + scale(ICARTot) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+# Model S1b
+
+#unadjsuted
+summary(lme4::lmer(scale(SI) ~ scale(Persec) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+summary(lme4::lmer(scale(SI) ~ block * Order + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+confint(lme4::lmer(scale(SI) ~ block * Order + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+summary(lme4::lmer(scale(SI) ~ block * scale(Persec) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+confint(lme4::lmer(scale(SI) ~ block * scale(Persec) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+#adjusted
+model.compare(lme4::lmer(scale(SI) ~ Order * block + scale(Persec) + Age + Sex + scale(ICARTot) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+# Model S2b
+model.compare(lme4::lmer(scale(SI) ~ Order + scale(Persec) * block + Age + Sex + scale(ICARTot) + (1|ID), 
+                         data = Dictator_w_parms, na.action = na.fail))
+
+
+#Simulated behavioural check
+
+#Model S5a
+model.compare(lme4::lmer(scale(HIsim) ~ scale(Persec) + scale(ICARTot) + Order + Age + Sex + (1|ID), data = Dictator_w_parms, na.action = na.fail))
+
+# Model S5b
+
+model.compare(lme4::lmer(scale(SIsim) ~ scale(Persec) + scale(ICARTot) + Order + Age + Sex + (1|ID), data = Dictator_w_parms, na.action = na.fail))
+
+# Global model for linear fits
+
+modelGlobal <- Dictator_w_parms %>% 
+  dplyr::select(pHI0, uHI0, pSI0, uSI0, eta, uPi, wHI, wSI, w0, HI, SI, Persec, ICARTot, Age, Order, Sex, ID, Control) %>%
+  group_by(ID) %>%
+  dplyr::mutate(Sex = ifelse(Sex == "Male", 1, 0),
+                HIsum = sum(HI)/20,
+                SIsum = sum(SI)/20,
+                Order = ifelse(Order == 'Unfair', 1, 0)) %>%
+  dplyr::select(-HI, -SI) %>%
+  dplyr::distinct()
+
+#Table 2; Model S5
+
+model.compare(lm(scale(Persec) ~
+    scale(pHI0) + scale(uHI0) + scale(pSI0) + scale(uSI0) + scale(eta) + scale(uPi) + scale(w0) + scale(wHI) + scale(wSI) + scale(Age) + Sex + scale(ICARTot) + scale(Control),
+    data = modelGlobal,
+    na.action = na.fail))
+
+# Policy assessment/ Figure S9
+
+weights <- modelGlobal %>% 
+  mutate(PersecOrd = ifelse(Persec < 3.66, 1, 2)) %>%
+  as.data.frame() %>%
+  group_by(PersecOrd) %>%
+  summarise(meanwSI = mean(wSI),
+            meanwHI = mean(wHI),
+            meanw0 = mean(w0)) %>%
+  as.matrix()
+
+pi  = array(NA,c(9,9,2,2));
+for (i in 1:2){
+  
+  for (SI in 1:9){
+    for (HI in 1:9){
+        pi[SI,HI,1,i]  = as.numeric(invlogit(weights[i, 4] + (weights[i, 3] * (HI-5)) + (weights[i,2] * (SI-5))))
+        pi[SI,HI,2,i]  = 1 - pi[SI,HI,1,i]
+    }
+  }
+}
+
+UnfairChange <- pi[,,1,2] - pi[,,1,1]
+FairChange   <- pi[,,2,2] - pi[,,2,1]
+  
+UFPlot <- UnfairChange %>% 
+  as_tibble() %>%
+  mutate(`Self Interest` = 1:9) %>%
+  pivot_longer(1:9, names_to = 'HI', values_to = 'Change') %>%
+  mutate(`Harmful Intent` = rep(1:9, 9)) %>%
+  ggplot(aes(`Harmful Intent`, `Self Interest`,  fill = Change))+
+  geom_tile()+
+  labs(title = 'Unfair Return')+
+  scale_fill_gradient(low = '#3B7080', high = 'white') +
+  scale_x_binned(breaks = c(1:9))+
+  scale_y_binned(breaks = c(1:9))
+FPlot <- FairChange %>% 
+  as_tibble() %>%
+  mutate(`Self Interest` = 1:9) %>%
+  pivot_longer(1:9, names_to = 'HI', values_to = 'Change') %>%
+  mutate(`Harmful Intent` = rep(1:9, 9)) %>%
+  ggplot(aes(`Harmful Intent`, `Self Interest`,  fill = Change))+
+  geom_tile()+
+  labs(title = 'Fair Return')+
+  scale_fill_gradient(low = 'white', high = '#BA1200') +
+  scale_x_binned(breaks = c(1:9))+
+  scale_y_binned(breaks = c(1:9))
+
+S11a <- (UFPlot | FPlot) & 
+  theme(plot.margin = unit(c(2,1.5,2,1.5), 'cm'),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 18),
+        panel.background = element_blank(),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5, size = 16)) & 
+  patchwork::plot_annotation(title = 'Policy Map Difference Between High and Low Paranoia')
+
+
+#Figure S5b
+test1   <- list()
+test2   <- list()
+testwSI <- list()
+
+for (k in 1:9){
+for (i in 1:100){
+  
+  test <- infHISIll_20d(c(0.5, 2, 0.5, 2, 2, -1, 0.1, (k/10), 0.5), data, details = T)
+  test$evo <- test$evo %>% as.data.frame() %>% mutate(iter = i, wSI = k/10, Partner = partner)
+  test1[[i]] <- test$evo
+}
+  testwSI[[k]] <- do.call(rbind, test1)
+}
+
+testwSIDF <- do.call(rbind, testwSI) %>% 
+  as.data.frame() %>% 
+  filter(trial != 0) %>%
+  rename(`Harmful Intent` = HIsim,
+         `Self Interest` = SIsim) %>%
+  #mutate(Partner = ifelse(Partner == 1, 'Fair First', 'Unfair First')) %>%
+  pivot_longer(`Harmful Intent`:`Self Interest`, 'Attribution', values_to = 'Sim')
+
+S11b <- ggplot(testwSIDF, aes(trial, Sim, color = wSI, group = wSI, linetype = Attribution))+
+  stat_summary(geom = 'line')+
+  labs(x = 'Trial', y = 'Simulated Attribution')+
+  facet_wrap(~Attribution)+
+  coord_cartesian(ylim = c(0, 1))+
+  scale_color_gradient(name = expression(w[SI]), breaks = c(seq(0.1, 0.9, 0.1)))+
+  scale_linetype(guide = 'none')+
+  theme_minimal()+
+  theme(strip.text.x = element_text(size = 18),
+        axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        legend.position = c(0.8, 0.2),
+        legend.background = element_rect(color = 'black'),
+        legend.direction = 'horizontal',
+        legend.key.width = unit(1.2, 'cm'),
+        legend.title = element_text(size = 14))
+S11b
+
+(S11a / S11b) & patchwork::plot_annotation(tag_levels = 'A')
+
+```
+
+#Probabilistic and Inference joint analysis
+
+```{r Joint analysis}
+
+typeCheckComb <- read.csv('Data/CombinedAnalysis.csv')
+
+nonSocParms <- typeCheckComb %>%
+  dplyr::select(tau:sal, ID) %>%
+  na.omit() %>%
+  distinct()
+
+nonSocPcor <- cor(as.data.frame(nonSocParms[,1:5]), method = 'pearson')
+
+nonSocPCorPlot <- ggcorrplot::ggcorrplot(corr = nonSocPcor, 
+                                    p.mat = ggcorrplot::cor_pmat(as.data.frame(nonSocParms[,1:5])), 
+                                    lab = T, 
+                                    type = 'upper')+
+  scale_x_discrete(labels = c(
+    lrc = expression(paste(lambda[1])),
+    mem = expression(paste(phi)),
+    tau = expression(paste(tau)),
+    res = expression(paste(eta[pr])),
+    sal = 'S'
+  )) +
+  scale_y_discrete(labels = c(
+    lrc = expression(paste(lambda[1])),
+    mem = expression(paste(phi)),
+    tau = expression(paste(tau)),
+    res = expression(paste(eta[pr])),
+    sal = 'S'
+  ))+
+  theme(legend.position = c(0.75, 0.25),
+        axis.text.y = element_text(size = 18),
+        axis.text.x = element_text(size = 18))
+
+nonSocPCorPlot
+  
+typeCheckComb <- plyr::join(Dictator_w_parms, 
+                              typeCheckComb %>% ungroup() %>% 
+                              dplyr::select(tau, lrc, res, mem, sal, ID) %>%
+                              distinct(), 
+                              by = "ID") %>% 
+  distinct()
+
+#write.csv(typeCheckComb, '/Users/josephbarnby/My Drive/Dropbox/PersonalModelling/CombinedAnalysis.csv')
+
+typeCheckComb_mod1 <- typeCheckComb %>% 
+  dplyr::select(tau, Persec, Age, Sex, ICARTot, Control, 
+                meanHI, meanSI, ID) %>% 
+  distinct() %>% 
+  na.omit()
+
+typeCheckComb_mod2 <- typeCheckComb %>% 
+  dplyr::select(tau, pHI0, uHI0, pSI0, uSI0, uPi, eta, w0, wHI, wSI, Persec, Age, Sex, ICARTot, Control, ID) %>% 
+  distinct() %>% 
+  na.omit()
+
+# Model J1a
+confint(lm(scale(tau) ~
+    scale(meanHI) + scale(meanSI), #+ 
+   # scale(Age) + Sex + scale(ICARTot) + scale(Control), 
+    data = typeCheckComb_mod1,
+    na.action = na.fail))
+
+# Model J1b
+model.compare(lm(scale(tau) ~
+    scale(meanHI) + scale(meanSI) + 
+    scale(Age) + Sex + scale(ICARTot) + scale(Control), 
+    data = typeCheckComb_mod1,
+    na.action = na.fail))
+
+# Model J2a
+
+model.compare(lm(scale(tau) ~
+    scale(pHI0) + scale(uHI0) + scale(pSI0) + scale(uSI0) + scale(eta) + 
+    scale(uPi) + scale(w0) + scale(wHI) + scale(wSI),
+    data = typeCheckComb_mod2,
+    na.action = na.fail))
+
+# Model J2b
+
+model.compare(lm(scale(tau) ~
+    scale(pHI0) + scale(uHI0) + scale(pSI0) + scale(uSI0) + scale(eta) + 
+    scale(uPi) + scale(w0) + scale(wHI) + scale(wSI) + 
+    scale(Age) + Sex + scale(ICARTot) + scale(Control), 
+    data = typeCheckComb_mod2,
+    na.action = na.fail))
+
+# Model J2c
+
+model.compare(lm(scale(tau) ~
+    scale(pHI0) + scale(uHI0) + scale(pSI0) + scale(uSI0) + scale(eta) + 
+    scale(uPi) + scale(w0) + scale(wHI) + scale(wSI) + scale(Persec) + 
+    scale(Age) + Sex + scale(ICARTot) + scale(Control), 
+    data = typeCheckComb_mod2,
+    na.action = na.fail))
+
+```
+
+#Correlations and networks
+
+```{r}
+
+combCor <- pcor(as.data.frame(typeCheckComb) %>% 
+                  dplyr::select(pHI0:eta, Persec) %>% 
+                  na.omit() %>% 
+                  distinct(), 
+                method = 'spearman')
+combCor2 <- pcor(as.data.frame(typeCheckComb) %>% 
+                   dplyr::select(pHI0:eta, tau, Persec) %>% 
+                   na.omit() %>% 
+                   distinct(), 
+                 method = 'spearman')
+
+noTau <- ggcorrplot::ggcorrplot(corr = combCor$estimate, 
+                       p.mat = combCor$p.value, 
+                       lab = T, 
+                       type = 'upper')+
+  scale_x_discrete(labels = c(
+    uPi = expression(paste('u', pi)),
+    eta = expression(paste(eta[dg])),
+    tau = expression(paste(tau))
+  )) +
+  scale_y_discrete(labels = c(
+    uPi = expression(paste('u', pi)),
+    eta = expression(paste(eta[dg])),
+    tau = expression(paste(tau))
+  ))+
+  theme(legend.position = c(0.75, 0.25))
+  
+withTau <- ggcorrplot::ggcorrplot(corr = combCor2$estimate, 
+                                  p.mat = combCor2$p.value, 
+                                  lab = T, 
+                                  type = 'upper')+
+  scale_x_discrete(labels = c(
+    uPi = expression(paste('u', pi)),
+    eta = expression(paste(eta[dg]))
+  )) +
+  scale_y_discrete(labels = c(
+    uPi = expression(paste('u', pi)),
+    eta = expression(paste(eta[dg]))))+
+  theme(legend.position = c(0.75, 0.25)) & 
+  plot_annotation(tag_levels = 'A')
+
+(noTau|withTau)
+
+ggplot(typeCheckComb %>% 
+         pivot_longer(c(meanHI, meanSI), "Attribution", values_to = "Value") %>% 
+         dplyr::select(Value, Attribution, ID, tau) %>% 
+         distinct()) + 
+  geom_jitter(aes(tau, Value, color = Attribution), alpha = 0.5)+
+  geom_smooth(aes(tau, Value, color = Attribution), method = 'lm')+ 
+  ggpubr::stat_cor(aes(tau, Value, color = Attribution), 
+                   method = 'spearman', 
+                   show.legend = F, 
+                   label.y.npc = 0.2, 
+                   label.x.npc = 0.6, 
+                   size = 8)+
+  scale_color_manual(values = c('#DA7000','#7700DA'), name = "Attribution", 
+                     labels = c('Harmful Intent', 'Self Interest'))+
+  labs(x = expression(paste(tau)), y = 'Mean of Attributions Over 20 Trials')+
+  tidybayes::theme_tidybayes()+
+  theme(legend.position = c(0.75, 0.9),
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size =24),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+# distributions of parameters:
+library(bootnet)
+library(qgraph)
+
+graphNode <- typeCheckComb %>% 
+                 as.data.frame() %>%
+                        dplyr::select(pHI0, pSI0, uHI0, uSI0, eta, uPi, w0, wHI, wSI, tau, 
+                                      ID, Order, Persec, Age, Sex, Control, ICARTot) %>%
+                       na.omit() %>%
+                       distinct()
+
+repNet  <- graphNode %>% dplyr::select(1:6, Persec)
+
+hugeNetrep <- estimateNetwork(repNet, 
+                    default = 'huge', 
+                    npn = T)
+
+qgraph(hugeNetrep$graph, 
+       layout = 'spring', 
+       labels = names(repNet),
+       vsize=10, esize=10, asize=10, 
+       curve = 0.7, #curveAll = T, curveScale = T,
+       palette = 'colorblind')
+
+qgraph::centralityPlot(hugeNetrep$graph, 
+                                include = 'all', 
+                       decreasing = T, 
+                       labels = names(repNet))+
+  theme(strip.background.x = element_blank(),
+        strip.text.x = element_text(size = 14),
+        axis.text = element_text(size = 14))+
+  labs(x = 'Z - score')
+
+NetBootrep <- bootnet::bootnet(repNet, 
+                     default = 'huge', 
+                   nCores = 4,
+                   nBoots = 2500)
+NetBootrep2 <- bootnet::bootnet(repNet, 
+                     default = 'huge', 
+                   nCores = 4,
+                   nBoots = 2500, 
+                   type = 'case', 
+                   statistics = c('edge', 'strength', 'closeness', 'betweenness'))
+
+summary(NetBootrep) %>% as.data.frame() %>% filter(type == 'edge')
+plot(NetBootrep, plot = 'difference', order = 'sample', onlyNonZero = T)+
+  theme(axis.text.x = element_text(size = 18),
+        strip.text.x = element_text(size = 18),
+        legend.text = element_text(size = 18))
+
+plot(NetBootrep2, order = "sample", statistics = 'all')+ 
+  theme(axis.text = element_text(size = 18),
+        axis.title = element_text(size = 18),
+        strip.text.x = element_text(size = 18),
+        legend.text = element_text(size = 18))
+corStability(NetBootrep2)
+
+nreps <- 10000
+r.diff <- rep(NA, 10)
+r.random <- matrix(NA, nrow = nreps, ncol = 10)
+prob <- r.diff
+
+for (k in 1:10){
+  
+      if (k < 10){var = graphNode[,k]; name = colnames(graphNode)[k]} 
+      else {var = graphNode[,'Persec'];name = 'Paranoia'}
+  
+      r.obt     <- cor(graphNode$tau, var, method = 'spearman')
+      r.diff[k] = r.obt
+      
+    for (i in 1:nreps) {
+      
+      Ya <- graphNode$tau
+      Xa <- sample(var, length(var), replace = FALSE)
+      r.random[i, k] <- cor(Xa,Ya)
+      
+    }
+      
+      prob[k] <- length(r.random[,k][r.random[,k] >= r.diff[k]])/nreps
+      cat("\n Probability randomized rho >=", round(r.diff[k],2), "(",name,") is", prob[k])
+      
+}
+
+r.random <- r.random %>% as.data.frame()
+names(r.random) <- names(graphNode)[c(1:9, 13)]
+r.diff<- r.diff %>% 
+  as.data.frame() %>% 
+  rename(pval = 1) %>% 
+  mutate(Variable = names(r.random),
+         y = c(200, 250, 200, 250, 150, 250, 250, 200, 300, 250))
+
+ggplot(r.random %>%
+         as.data.frame() %>%
+         pivot_longer(1:10, 'Variable', values_to = 'Permutation'),
+       aes(Permutation, group = Variable))+
+  geom_histogram(bins = 100, position = 'dodge', color = 'grey')+
+  geom_vline(xintercept = r.diff$pval, color = ifelse(prob<0.05, 'red', 'black'))+
+  annotate(geom  = 'label', x = r.diff$pval + 0.008, y = r.diff$y, 
+           label = paste(r.diff$Variable, '\n p = ', round(prob, 2)))+
+  labs(x = expression(paste('Correlation Coefficient ', rho)), y = 'Count')+
+  theme_tq()+
+  theme(text = element_text(size = 14))
+
+model.compare(lm(scale(tau) ~ scale(pHI0) + scale(pSI0) + scale(uPi) + scale(eta) + scale(uHI0) + scale(uSI0) +
+                 scale(wHI) + scale(w0) + scale(wSI) + scale(Persec) + scale(Age) + Sex + scale(Control), 
+                 data = graphNode, 
+                 na.action = na.fail))
+
+
+```
+
+```{r}
+
+#For illustrator
+
+Dictator_w_parms %>% 
+  slice(1:20) %>% 
+  mutate(`Fair First Partner` = ifelse(decision == 'FAIR', 0, 1),
+         `Unfair First Partner` = ifelse(decision == 'FAIR', 1, 0)) %>% 
+  group_by(block) %>% 
+  mutate(`Fair First Partner` = sum(`Fair First Partner`)/10,
+         `Unfair First Partner` = sum(`Unfair First Partner`)/10) %>% 
+  pivot_longer(`Fair First Partner`:`Unfair First Partner`, 'Decision', values_to = 'Probability') %>%
+  ggplot(aes(Trial, Probability, color = Decision)) + 
+  geom_line(size = 3) + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1))+
+  scale_color_manual(values = c('#DA7000','#7700DA'))+
+  labs(y = 'p(Unfair Outcome)', x = 'Trial')+
+  theme(axis.text = element_text(size = 40),
+        axis.title = element_text(size = 40),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        legend.position = 'top',
+        legend.text = element_text(size = 40),
+        legend.key = element_rect(size = 40)
+        )
+
+
+# Card policies
+
+data.frame(
+Trial = 1:60,
+CardA = c(rep(0.2, 30), rep(0.8, 30)),
+CardB = c(rep(0.5, 60)),
+CardC = c(rep(0.8, 30), rep(0.2, 30))
+) %>%
+  pivot_longer(CardA:CardC, 'Card', values_to = 'Probability') %>%
+  ggplot(aes(Trial, Probability, color = Card)) + 
+  geom_line(size = 3) + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1))+
+  scale_color_brewer(palette = 'Set1')+
+  labs(y = 'p(Reward)', x = 'Trial')+
+  theme(axis.text = element_text(size = 40),
+        axis.title = element_text(size = 40),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        legend.position = 'top',
+        legend.text = element_text(size = 40),
+        legend.key = element_rect(size = 40)
+        )
+
+
+```
+
+```{r  Utility}
+
+# Utility -----------------------------------------------------------------
+
+dbetasc <- function(x, shape1, shape2, lo=0, hi=1, ncp=0, log=FALSE){
+
+  xtr <- (x-lo)/(hi-lo); # will work even if hi<lo
+  if (log==FALSE) {
+    return( dbeta( xtr, shape1, shape2, ncp, log)/abs(hi-lo) );
+  }
+  else {
+    return( dbeta( xtr, shape1, shape2, ncp, log) - log(abs(hi-lo)) );
+  }
+}
+
+mysamp <- function(n, m, s, lwr, upr, nnorm) {
+  samp <- rnorm(nnorm, m, s)
+  samp <- samp[samp >= lwr & samp <= upr]
+  if (length(samp) >= n) {
+    return(sample(samp, n))
+  }
+  stop(simpleError("Not enough values to sample from. Try increasing nnorm."))
+}
+
+model.compare <- function(x){ # X needs to be a model object, e.g. lm, clm, lmer
+
+  library(MuMIn)
+  library(knitr)
+
+#run MuMIn model averaging
+x.set          <- dredge    (x, REML = F)
+x.models       <- get.models(x.set, subset = delta<2)
+x.a            <- model.avg (x.models, adjusted=FALSE, revised.var=TRUE)
+
+#summarise global model
+print(summary(x.a))
+print(importance(x.a))
+print(confint(x.a))
+
+#coefs <- tidy(x.a, conf.int = T)
+
+#plot models
+
+#  library(hrbrthemes)
+#
+#ggplot(coefs %>%
+#                       mutate(term = fct_reorder(term, estimate, .desc = T))) +
+#
+#  geom_pointrange(aes(x=term, y=estimate, ymin=conf.low, ymax=conf.high)) +
+#  geom_hline(yintercept = 0, col = "orange") +
+#
+#  theme_ipsum()+
+#  theme(axis.title.x = element_blank())
+#
+#
+#
+}
+
+```

@@ -1,0 +1,1204 @@
+---
+title: "ProbabilisticCompMarkDown"
+author: "Barnby, J.M."
+date: "12/11/2020"
+output:
+  prettydoc::html_pretty:
+    toc: true
+    theme: architect
+    highlight: github
+---
+
+
+```{r, , include=FALSE, echo=FALSE, warning=F, message=F}
+# Computational modelling of Prob Learning----------------------------------------
+library(groundhog)
+groundhog.library(easystats, date = '2021-01-01')
+groundhog.library(tidyverse, date = '2021-01-01')
+groundhog.library(ggplot2, date = '2021-01-01')
+groundhog.library(ggrepel, date = '2021-01-01')
+groundhog.library(patchwork, date = '2021-01-01')
+
+### Hi Joe sorry there are prettier ways of catering for multiple machines,
+###    let's declutter this if we find ourselves needing the thing to run on more machines.
+
+###  General utilities by Michael 
+try(source("gen_ut.R"))
+
+### The key RW_Reversal script
+try(source("RW_Models.R"))
+
+```
+
+```{r, include=TRUE, echo=FALSE, warning=F, message=F}
+# ToyData plots -----------------------------------------------------------
+
+#Toydata to test gradual learning
+toyD <- data.frame(
+  matrix(
+    c(1:60,
+      rep(c(rep(1,10), rep(2,10), rep(3,10)), 2), 
+      rep(10,10),
+      rep(c(-5,10), 5),
+      rep(-5,10), 
+      rep(-5,10),
+      rep(c(-5,10), 5),
+      rep(10,10)),
+    60,
+    3)); 
+colnames(toyD) <- c('tr','action','r')
+
+# toy data to test win-Stay lose-Shift
+wslsD <-  matrix(
+  c(1:60,
+                           # Block 1 actions:                   block 2 actions:
+                  rep(c(1,1,1,2,2,3,1,1,1,1,3,2,1,1,1),2),rep(c(1,2,2,3,3,3,3,1,2,3,3,3,1,3,3),2),
+                           
+                           # Block 1 returns:                   block 2 returns:
+    2.5+7.5*
+        (-1)^(1-c(rep(c(1,1,0,1,0,0,1,1,1,0,1,0,1,1,1),2),rep(c(0,1,0,1,0,1,0,0,0,1,1,0,0,1,1),2)))
+    ),
+  60,
+  3) 
+colnames(wslsD) <- c('tr','action','r')
+
+# Show the win-stay lose-shift thing : 
+plot(wslsD[,1]+0.25,wslsD[,3],t='l',col='cyan',lwd=2,xlab='time',ylab='action (blue) and return (cyan) ',main='wStay-lShift toy data, with lapses (pink lines)'); lines(wslsD[,1],3*(wslsD[,2]-2),t='p',col='blue'); abline(v=11.75,col='pink3'); abline(v=26.75,col='pink3'); abline(v=45.75,col='pink3'); abline(v=50.75,col='pink3'); abline(v=35.75,col='pink3'); abline(v=30.75,col='black',lwd=1)
+
+```
+
+### Demo plots for the RW (Q-learning) 
+We will now plot Q values, decisions and returns
+for two artificial examples of reversal learning and
+the respective synthetic data.
+
+```{r, warning=F, message=F, echo=FALSE}
+#RW Reversal test plots
+
+set.seed(1432)
+### ~~~~~~~~ First show test plot for gradual learning ~~~~~~~~~~~~~
+
+### parameter names (for column headings etc.) and some values:
+### #decision temp #learning rate 
+###                   #resetting param #Salience #memory  # Lapse rate 
+hdParRW <- c("tau",  "lrc", "reset",      "sal",  "mem",   "zet", 'dlrc')
+par      <- c(0.5,    0.2,   0.75,          0,   0.9999,   0.00001, 0)
+test     <- reversal_RW(par, toyD, detail = T)
+
+ggplot2::ggplot(
+  
+  test[2:61,] %>%
+    as.data.frame() %>%
+    pivot_longer(
+      c(6:8, 13:15),
+      names_to = "Q",
+      values_to = "Value"
+    ) %>%
+    mutate(
+      Q = factor(Q, 
+             levels = c("Q1", "simQ1", "Q2", "simQ2", "Q3", "simQ3"),
+             ordered = T)
+    )
+  
+) +
+  geom_line(aes(Trial,  Value, color = Q, group = Q))+
+  geom_point(aes(Trial, Outcome), color = 'black', alpha = 0.5)+
+  geom_point(aes(Trial, Action), color = 'blue', alpha = 0.5)+
+  geom_point(aes(Trial, simR), color = 'grey', alpha = 0.5)+
+  geom_point(aes(Trial, simD), color = 'purple', alpha = 0.5)+
+  labs(
+    title = "RW learning: Model Action (Blue), Outcome (Black) and Q Values",
+    subtitle = paste("Tau = ", par[1], 
+                     "Lrt =", par[2], 
+                     "Reset =", par[3],
+                     "Salience = ", par[4],
+                     "Mem = ", par[5],
+                     "Zeta = ", par[6],
+                     "dLRC = ", par[7]))+
+  scale_color_brewer(palette = "Paired")+
+  theme(legend.position = "top",
+        plot.title = element_text(size = 14))
+
+```
+
+### Demo plots for win-stay lose-shift 
+Again plot Q values, decisions and returns. The WSLS
+model is formulated as a special case of the RW model
+with memory (or forgetting). The memory simply serves
+to keep account which non-win choices lost most recently
+and avoid those more. The only necessary parameter is 
+'zeta', the lapse rate (or eta-greedy) noise parameter.
+
+
+```{r, warning=F, message=F, echo=FALSE}
+### ~~~~~~~~ Show test plot for Win-stay lose-shift ~~~~~~~~~~~~~
+              #Tau   #Lrc   #Res #Sal #mem    #zet
+par      <- c(0.01, 0.9999,  0.1,  0, 0.8, 0.001, 1e-6)
+test     <- reversal_RW(par, wslsD, detail = T)
+
+plot(test[,6],t='l',ylim=c(-5.1,10.1),ylab='Q values',xlab='trial',main='wStayLshift data: purple=action, gold=outcome, pink=lapses',col='gray40');   # first Q value
+lines(test[,7],col='blue');   # second Q value
+lines(test[,8],col='green');  # third Q value
+lines(test[,2],t='p',col='purple'); 
+lines(test[,3],t='p',col='gold4'); 
+abline(v=12,col='pink3'); abline(v=27,col='pink3'); abline(v=36,col='pink3'); abline(v=46,col='pink3'); abline(v=51,col='pink3'); abline(v=30.5,col='black',lwd=1)
+
+
+plot(test[,13],t='l',ylim=c(-5.1,10.1),ylab='Q values',xlab='trial',main='wStayLshift Simulated data: purple=action, gold=outcome', col='gray60'); 
+lines(test[,14],col='blue1'); 
+lines(test[,15],col='green3'); 
+lines(test[,16],t='p',col='purple'); 
+lines(test[,17],t='p',col='gold4'); 
+abline(v=30.5,col='black',lwd=1)
+
+```
+
+```{r, include=TRUE, echo=FALSE, warning=F, message=F}
+# Fit real data -----------------------------------------------------------
+
+#Prep real data
+try(probabilistic   <- read.csv("Data/ProbabilisticCleaned.csv"))
+
+probabilisticModel <- probabilistic %>%
+  group_by(ID) %>%
+  arrange(ID) %>%
+  dplyr::select(Trial, Selection, Response, ID, Block, ICARTot, Persec, Age, Sex, Control) %>%
+  mutate(
+    Selection = recode(
+      Selection,
+      'urn3.png' = 3,
+      'urn2.png' = 2,
+      'urn1.png' = 1
+    ),
+    Block = recode(
+      Block,
+      'Block 1' = 1,
+      'Block 2' = 2
+    ),
+    Block = as.numeric(Block),
+    Sum = sum(Block),
+  ) %>%
+  filter(Sum == 90) %>%
+  dplyr::select(Trial, Selection, Response, ID, ICARTot, Persec, Age, Sex, Control)
+
+probabilisticModel <- split(probabilisticModel, probabilisticModel$ID)
+
+### rough check and hack 
+### This block removes failed elements.
+
+l <- length(probabilisticModel)
+for (i in 1:l){
+  if (is_empty(probabilisticModel[[l-i+1]][[1]])){
+    print(paste('Warning: empty element, deleting ', l-i+1))
+    probabilisticModel <- probabilisticModel[-(l-i+1)]
+  }
+}
+cat('\n'); print(paste('probabilisticModel assembled, with ', length(probabilisticModel), ' items:', sep=''),quote=FALSE); head(summary(probabilisticModel));
+# probabilisticModel[[1]]
+
+#Initialise object and parameters
+RW_list    <- list()
+#Tau #Lrc #Res #Sal #mem #zet
+parR6      <- c(0.5, 0.1, 0.8, 0, 0.99, 0.001, 0) # for non wsls
+parWL      <- c(0.01, 0.9999,  0.1,  0, 0.8, 0.001, 0)
+ppts <- 692
+
+#Generate learning
+for (i in 1:ppts) {
+  
+  probabilisticModel[[i]][,1]  <- 1:60
+  RW_list[[i]]              <- reversal_RW(parR6, 
+                                           #Pick one set of parameters for WSLS or full
+                                           as.data.frame(probabilisticModel[[i]][1:3]), 
+                                           detail = T)
+  RW_list[[i]]              <- RW_list[[i]][2:61, c(1:3, 6:18)]
+  RW_DF                     <- as.data.frame(RW_list[[i]])
+  RW_DF[,17:22]             <- as.data.frame(probabilisticModel[[i]][,4:9])
+  RW_list[[i]]              <- RW_DF
+  
+}
+
+#Synthesise dataframe 
+simReal <- do.call(rbind, RW_list)
+simReal %>%
+  group_by(ID) %>%
+  mutate(
+    Block = c(rep("1", 30), rep("2", 30)),
+    Q1Tot = mean(Q1),
+    Q2Tot = mean(Q2),
+    Q3Tot = mean(Q3),
+    LogLi = mean(ll),
+    AICm  = mean(AIC)
+  ) %>%
+  ungroup()-> simReal
+
+```
+
+```{r, warning=F, message=F}
+# Model performance -------------------------------------------------------
+
+WinSwitchPlot <- simReal %>%
+  group_by(ID) %>% 
+  mutate(PosFeed   = sum(Outcome==10),
+         WinSwitch = sum(ws)/PosFeed,
+         LoseStay = sum(ls)/PosFeed) %>%
+  dplyr::select(ID, Persec, PosFeed, WinSwitch, LoseStay) %>%
+  pivot_longer(3:4,
+             names_to = "Behaviour",
+             values_to = "Value") %>%
+  distinct() %>%
+  #cbind(PersecResid) %>%
+  #rename(Residuals = 5) %>%
+  
+  ggplot()+
+
+  geom_smooth(aes(Residuals, Value, color = Behaviour, fill = Behaviour), alpha = 0.2, method = 'lm') +
+  ggpubr::stat_cor(aes(Residuals, Value, colour = Behaviour), 
+                   show.legend = F, method = 'spearman', label.y.npc = 0.45)+
+  
+  coord_cartesian(ylim = c(0,0.5))+
+  labs(x = 'Paranoia controlling for ICAR Score, Age, and Sex',
+       y = 'WinSwitch/LoseStay Behaviour')+
+  scale_color_brewer(palette = 'Dark2')+
+    scale_fill_brewer(palette = 'Dark2')+
+  #facet_wrap(~Block, scales = "free")+
+  tidybayes::theme_tidybayes()+
+  theme(legend.position = c(0.2, 0.2),
+        legend.title = element_blank(),
+        legend.direction = 'horizontal')
+
+# Win switch behaviour
+
+winSwitchModel <- simReal %>%
+  group_by(ID, Block) %>% 
+  mutate(PosFeed   = sum(Outcome==10),
+         NegFeed   = sum(Outcome==-5),
+         WinSwitch = sum(ws)/PosFeed,
+         LoseStay = sum(ls)/NegFeed) %>%
+  dplyr::select(ID, Persec, ICARTot, WinSwitch, LoseStay, Age, Sex, Control) %>%
+  distinct()
+
+winSwitchModelAll <- simReal %>%
+  group_by(ID) %>% 
+  mutate(PosFeed   = sum(Outcome==10),
+         NegFeed   = sum(Outcome==-5),
+         WinSwitch = sum(ws)/PosFeed,
+         LoseStay = sum(ls)/NegFeed) %>%
+  dplyr::select(ID, Persec, ICARTot, WinSwitch, LoseStay, Age, Sex, Control) %>%
+  distinct()
+
+```
+
+## Model P5
+
+```{r}
+
+# Model P5a
+
+#unadjusted
+confint(lm(scale(WinSwitch) ~ scale(Persec), data = winSwitchModelAll))
+summary(lm(scale(WinSwitch) ~ scale(Persec), data = winSwitchModel %>% filter(Block == 1)))
+summary(lm(scale(WinSwitch) ~ scale(Persec), data = winSwitchModel %>% filter(Block == 2)))
+confint(lm(scale(WinSwitch) ~ scale(Persec), data = winSwitchModel %>% filter(Block == 2)))
+
+#adjusted
+winSwitchModelb1 <- winSwitchModel %>% filter(Block == 1)
+winSwitchModelb2 <- winSwitchModel %>% filter(Block == 2)
+model.compare(lm(scale(WinSwitch) ~ scale(Persec) + scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModelAll, na.action = na.fail))
+model.compare(lm(scale(WinSwitch) ~ scale(Persec) + scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModelb1, na.action = na.fail))
+model.compare(lm(scale(WinSwitch) ~ scale(Persec) + scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModelb2, na.action = na.fail))
+
+#P5a-Aux
+model.compare(lm(scale(WinSwitch) ~ scale(Persec) * scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModel, na.action = na.fail))
+
+# Model P5b
+
+#unadjusted
+summary(lm(scale(LoseStay) ~ scale(Persec), data = winSwitchModelAll))
+summary(lm(scale(LoseStay) ~ scale(Persec), data = winSwitchModel %>% filter(Block == 1)))
+summary(lm(scale(LoseStay) ~ scale(Persec), data = winSwitchModel %>% filter(Block == 2)))
+confint(lm(scale(LoseStay) ~ scale(Persec), data = winSwitchModel %>% filter(Block == 2)))
+
+#adjusted
+model.compare(lm(scale(LoseStay) ~ scale(Persec) + scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModelb1, na.action = na.fail))
+model.compare(lm(scale(LoseStay) ~ scale(Persec) + scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModelb2, na.action = na.fail))
+
+#P5b-Aux
+model.compare(lm(scale(LoseStay) ~ scale(Persec) * scale(ICARTot) + Age + Sex + Control,
+                data = winSwitchModel, na.action = na.fail))
+
+```
+
+
+```{r, warning=F, message=F}
+# Max parameter values ----------------------------------------------------
+
+redo = 0;    # There's a slow loop in here, so unless this flag is
+             # set to nonzero just load the data to plot from file
+if (!redo){
+  
+  load('basicparamrecov.RData')
+  
+} else {
+  
+genpar <- c( 0.50,  0.10, 0.75 ,0,  0.99, 0.001, 0.5)
+gridn <- 20; # 100;  # this is the resolution along the x axis
+itern <- 50; # 50; # Average over this many repetitions of the 'experiment' 
+synD  <- list(); # Will hold all synthetic data
+
+kL <- array(NA,c(gridn,14,itern));  # itern counts 'pages' 
+                                    # was matrix with:nrow=n,ncol=12);
+colnames(kL)  <- c('tau','L1', 'lrc','L2', 'res','L3', 'sal','L4', 'mem','L5', 'zet','L6', 'dlrc', 'L7');
+kL[,c(1, 3, 5, 7, 9, 11, 13),]  <- seq(0.001,0.999,length.out=gridn);  
+
+for (k in 1:itern){  # Create a new random synthetic dataset
+  
+  synD[[k]] <- reversal_RW(genpar, toyD)
+  synd <- synD[[k]][2:61,c(1,16,17)]       # Ta-dah, this is our synthetic data!
+               
+  for (i in 1:gridn){ 
+   l1 <- reversal_RW(c(kL[i,1,k],0.10,  0.75,    0,    0.99,   0.001, 0)  ,synd, detail = F)
+   l2 <- reversal_RW(c(0.50,kL[i,3,k],  0.75,    0,    0.99,   0.001, 0)  ,synd, detail = F)
+   l3 <- reversal_RW(c(0.50,  0.10   ,    kL[i,5,k],0,    0.99,   0.001, 0)  ,synd, detail = F)
+   l4 <- reversal_RW(c(0.50,  0.10   ,     0.75,kL[i,7,k],0.99,   0.001, 0)  ,synd, detail = F)
+   l5 <- reversal_RW(c(0.50,  0.10   ,     0.75,    0,kL[i,9,k],  0.001, 0)  ,synd, detail = F)
+   l6 <- reversal_RW(c(0.50,  0.10   ,     0.75,    0,    0.99,kL[i,11,k], 0),synd, detail = F)
+   l7 <- reversal_RW(c(0.50,  0.10   ,     0.75,    0,    0.99,   0.001, kL[i,13,k]),synd, detail = F)
+   kL[i,2,k] <- l1;
+   kL[i,4,k] <- l2;
+   kL[i,6,k] <- l3;
+   kL[i,8,k] <- l4;
+   kL[i,10,k] <- l5;
+   kL[i,12,k] <- l6;
+   kL[i,14,k] <- l7;
+  }
+}
+
+KL <- apply(kL,1:2,mean)
+save(genpar,gridn,itern,synD,kL,KL,file='Data/basicparamrecov.RData')
+
+}
+
+ggplot(as.data.frame(KL))+
+  
+  stat_summary(aes(KL[,1],  KL[,2] , color = "Tau")     , geom = 'line')+
+  stat_summary(aes(KL[,3],  KL[,4] , color = "lr")      , geom = 'line')+
+  stat_summary(aes(KL[,5],  KL[,6] , color = "reset")   , geom = 'line')+
+  stat_summary(aes(KL[,7],  KL[,8] , color = "salience"), geom = 'line')+
+  stat_summary(aes(KL[,9],  KL[,10], color = "mem")     , geom = 'line')+
+  stat_summary(aes(KL[,11], KL[,12], color = "zeta")    , geom = 'line')+
+  stat_summary(aes(KL[,13], KL[,14], color = "dlrc")    , geom = 'line')+
+  
+  labs(x='parameter value',y='mean sum-log-likelihood',
+       color='Params.:')
+
+doParallel::registerDoParallel(cores = 4)
+recoveryRW <- foreach (i = 1:100, .combine = rbind) %dopar% {
+  
+  genpar    <- mysamp(7, 0.5, 0.2, 0, 1, 1000)
+  genpar[1] <- mysamp(1, 1, 3, 0, 20, 1000)
+  synD[[k]] <- reversal_RW(genpar, toyD)
+  synd <- synD[[k]][2:61,c(1,16,17)] 
+  
+  fitAttempt <- try(optim(fn = wrapper_RW, par = genpar, data = synd))
+  
+  if(inherits(fitAttempt, "try-error"))
+  {
+    #error handling code
+  fitAttempt   <- data.frame(convergence = NA, par = genpar) # if fit failed, revert to best up to now:
+  }
+  
+  data.frame(
+  id = i,
+    taugen = genpar[1],
+    lrcgen = genpar[2],
+    resgen = genpar[3],
+    salgen  = genpar[4],
+    memgen   = genpar[5],
+    zetaHI     = genpar[6],
+    dlrcSI     = genpar[7],
+
+    taurec  = fitAttempt$par[1],
+    lrcrec  = fitAttempt$par[2],
+    resrec  = fitAttempt$par[3],
+    salrec   = fitAttempt$par[4],
+    memrec    = fitAttempt$par[5],
+    zetarec   = fitAttempt$par[6],
+    dlrcrec   = fitAttempt$par[7],
+  
+  convergence = fitAttempt$convergence
+)
+  
+}
+
+recoveryRWP <- recoveryRW %>% filter(convergence==1)
+RWcorCheck <- cor(recoveryRWP[, c(2:15)])
+RWpcorCheck <- ggcorrplot::cor_pmat(recoveryRWP[, c(2:15)])
+ggcorrplot::ggcorrplot(RWcorCheck[1:7, 8:14], lab = T, p.mat = RWpcorCheck[1:7, 8:14])
+
+```
+
+### Fitting basic RW paramters via brute-force grid searching
+
+```{r rwgridsearch, include=TRUE, echo=FALSE}
+groundhog.library(foreach, date = '2020-09-01')
+groundhog.library(doParallel, date = '2020-09-01')
+
+###### 
+
+gridsearch = 0;
+testgridsearch = 0; 
+if (!testgridsearch){ print("Grid fit to real data")}
+if ( testgridsearch){ print("Grid fit to simulated data")}
+if (gridsearch){
+ # Create a grid with key centiles, from the first-pass
+ # fit. These may be used directly for fitting and/or as initial
+ # conditions for nlm etc. 
+
+ grRes <- 8
+ grid6 <- list()   # list to hold 1-D grids for param. exploration
+   # useful to be able to put in also trivial grids with one default 
+   # value, so make it have length = max. param number. 
+ parN=7;    # How many params we will actually explore
+ grid6[[1]] <- 0.01#exp(seq(log(0.05),log(10),length=grRes))#c(0.01)# #
+ grid6[[2]] <- 0.99#seq(0.01,0.99,length=grRes)#0.99# #(0.99)
+ grid6[[3]] <- seq(0.01,0.99,length=grRes) # 0.01 #c(0.005, 0.05, 0.5, 0.85, 1)
+ grid6[[4]] <- seq(1e-6, 3e-1,length=grRes) ; # 1e-6
+ grid6[[5]] <- 1-1e-6#seq(1-1e-6, 1-1e-1,length=grRes)# #c(1-1e-6)#
+ grid6[[6]] <- 1e-6#seq(1e-6, 1e-1,length=grRes) # 1e-6#
+ grid6[[7]] <- 1e-10 # seq(1e-6, 1e-1,length=grRes) # 1e-6#
+ names(grid6) <- c('tau', 'lrc', 'res', 'sal', 'mem', 'zet', 'lrc2')
+
+ # Now apply to pts
+ pt2do = 1:692; # 1:2;
+ #iterN = round(grN); #/10)
+ gres  <- matrix(NA,length(pt2do),parN+3); # for results of grid search
+ colnames(gres) <- c('ID',names(grid6)[1:parN],'lp', 'sumll')
+ 
+ # oldres <- RW_grid[pt2do,];
+ list2do <- RW_list;
+ if ( testgridsearch ){
+   set.seed(1244)
+   pt2do = 1:692
+   list2do <- RW_list[pt2do]
+   
+                                      #real participants#
+   registerDoParallel(cores = 6)
+   
+   for (i in 1:length(pt2do)) {
+   
+   #par                 <- c(0.5,    0.1,   0,    1e-6,    1-1e-6,   1e-6, 1e-10)
+   parWL               <- c(0.01, 0.9999,  0.1,  0)
+   probabilisticModel[[i]][,1]  <- 1:60
+   RW_list[[i]]              <- reversal_RW(parWL, 
+                                            #Pick one set of parameters for WSLS or full
+                                            as.data.frame(probabilisticModel[[i]][1:3]), 
+                                            detail = T)
+   RW_list[[i]]              <- RW_list[[i]][2:61, c(1:3, 6:18)]
+   RW_DF                     <- as.data.frame(RW_list[[i]])
+   RW_DF[,17:21]             <- as.data.frame(probabilisticModel[[i]][,4:8])
+   RW_list[[i]]              <- RW_DF
+   
+   }
+   
+   
+   genp = matrix(parWL,length(pt2do),parN, byrow = T);
+   colnames(genp) <- names(grid6)[1:parN];
+   
+  }
+ 
+ registerDoParallel(cores = 6)
+ 
+ gresDF <- foreach(i = 1:length(pt2do), .combine = rbind) %dopar% {
+     
+     parN = 2
+     gres[i,1] <- RW_list[[i]][1, 17]  # simple numerical id
+     tryP = rep(NA,parN);
+     # load param vector using a nested loop (not a bril programming practice !
+     # (more elegant to use linear indexing qind)
+     iter = 0   # will count all iterations over grid
+     
+     for (tempi in 1:length(grid6[[1]])){
+        tryP[1] = grid6[[1]][tempi]
+        for (lrci in 1:length(grid6[[2]])){
+           tryP[2] = grid6[[2]][lrci]
+           for (resi in 1:length(grid6[[3]])){
+              tryP[1] = grid6[[3]][resi]
+              for (sali in 1:length(grid6[[4]])){
+                 tryP[2] = grid6[[4]][sali]
+                 for (memi in 1:length(grid6[[5]])){
+                    tryP[5] = grid6[[5]][memi]
+                    for (zeti in 1:length(grid6[[6]])){
+                       tryP[6] = grid6[[6]][zeti]
+                       for (dlrci in 1:length(grid6[[7]])){
+                         tryP[7] = grid6[[7]][dlrci]
+                       iter = iter + 1  # crude counter at innermost loop
+
+      lp = -wrapper_WSLS(tryP, RW_list[[i]][1:3], scbeta0 = -1) # log post
+      
+      if (!is.na(lp))
+        if ((iter==1) | is.na(as.numeric(gres[i,9]))){ # if lp not filled in at all
+           gres[i,2:(parN+1)] = tryP;
+           gres[i,9] = lp;
+           gres[i,10] = -wrapper_WSLS(tryP, RW_list[[i]][1:3], scbeta0 = NA);
+        } else {
+           if (lp > as.numeric(gres[i,9])){      # only replace if better lp this time.
+             gres[i,2:(parN+1)] = tryP;
+             gres[i,9] = lp;
+             gres[i,10] = -wrapper_WSLS(tryP, RW_list[[i]][1:3], scbeta0 = NA);
+             
+          }  # end if found better lp
+         } # end if already valid lp present, so can compare w. new one
+        } # parm 1
+       } # parm 2
+      } #parm 3
+     } #parm 4
+    } #parm 5
+   } #parm 6
+  } #parm 7
+     
+        data.frame(ID    = gres[i,1],
+                   #tau   = gres[i,2],
+                   #lrc   = gres[i,3],
+                   reset = gres[i,2],
+                   sal   = gres[i,3],
+                   #mem   = gres[i,6],
+                   #zeta  = gres[i,7],
+                   #dlrc  = gres[i,8],
+                   lp    = gres[i,9],
+                   sumll = gres[i,10])
+} # loop over all the grid iterations
+ 
+ if ( testgridsearch ){
+   print('Generative parameters:',q=F)
+   print(genp,q=F); 
+   print('Best parameters in grid:',q=F)
+   print(gresDF,q=F); 
+   write.csv(as.data.frame(gresDF), "Data/gres_WSLS_692.csv")
+ } else {
+   print('First few best parameters in grid:',q=F)
+   print(head(gresDF))
+ }
+
+}  # end if gridsearch
+
+```
+
+```{r Test nlm function, warning=F, message=F}
+# NLM optimisation --------------------------------------------------------
+
+simll <- as.data.frame(reversal_RW(par, synD[[1]][2:61,c(1,16,17)], detail = T)) #use simulated data from test
+
+# Petrturb a key param:
+testpar = par;         
+
+mPD <- Inf  # in future will be used to monitor how bad fits are.
+tryP = testpar;
+
+fitAttempt <- optim(fn = wrapper_RW, par = tryP, data = synD[[1]][2:61, c(1, 2, 3)], 
+                    scbeta = -1) 
+
+fitAttempt
+
+print(paste('Parameter fit converged to lnP=-',round(fitAttempt$minimum,4),' at value=',sep=''),quote = F)
+print(round(fitAttempt$estimate,4))
+print(paste('... while generative param. hadl lnP=',round(simll$ll,4), ' with param. value:',sep=''),quote = F)
+print(round(par[1:6],4))
+
+```
+
+```{r fit real data using optim function, warning=F, message=F}
+# Fit real data -----------------------------------------------------------
+library(foreach)
+library(doParallel)
+parhd <- c("tau", "lrc", "reset", "sal", "mem", "zeta", 'dlrc')
+ppts  <- 692
+
+gres5_full <- read.csv("GridFits/gres_Real5parms_692.csv")
+gresWSLS_full <- read.csv("GridFits/gres_WSLS_692.csv")
+gres2_full <- read.csv("GridFits/gres_Real2parms_692.csv")
+gres3_full <- read.csv("GridFits/gres_Real3parms_692.csv")
+gresPH_full <- read.csv("GridFits/gres_RealPHMod_692.csv")
+
+tofit = 1;  # Set to 1 to knit.
+debug = 0; 
+pt2do = 1:ppts; if (debug){pt2do = 1:692}
+
+list2do <- RW_list[pt2do]
+
+if (tofit){
+  
+  tryP <- c(0.5, 0.1, 0.85, 1e-6, 1-1e-6, 1e-6, 1e-10)  # this is only a default 6-parms
+  n2do = length(pt2do); 
+  csvname = paste('keyRW',pt2do[1],'to',pt2do[n2do],'.csv',sep='')
+  res_prob <- matrix(NA,n2do,length(tryP)+4)
+  colnames(res_prob) <- c('ID',parhd[1:length(tryP)],'lp','ll','Persec')
+  gptsind <- length(tryP)+4;
+  nparms = 5
+  
+#for (pt in 1:n2do){ # regular looping function using a single core
+  
+if (!debug){
+  registerDoParallel(cores = 6) #choose how many cores in your processor to use
+} else {
+  registerDoParallel(cores = 4) #mostly for Michael's ancient machines
+}
+  
+res_prob <- foreach(pt=1:n2do, .combine = rbind) %dopar% { # multicore function for efficiency
+
+           try(tryP <- as.numeric(rep(0.5, 3)))); 
+               data <- list2do[[pt]][1:3]
+      
+               fitAttempt                    <- NA; # clear the decks
+           try(fitAttempt                    <- optim(fn = wrapper_PH, #change to WSLS for last 4 parm fit
+                                                     par = tryP, 
+                                                     data = data,
+                                                     scbeta0 = -1
+                                                     ))
+      loglik <- NA; 
+      try( loglik <- -wrapper_RW(fitAttempt$par, data, scbeta = NA));
+          
+          try(data.frame(
+                    ID = list2do[[pt]][1,17],
+                    tau = fitAttempt$par[1],
+                    lrc = fitAttempt$par[2],
+                    #res = fitAttempt$par[3],
+                    sal = fitAttempt$par[3],
+                    #mem = fitAttempt$par[5],
+                    zet = 1e-6, #fitAttempt$par[6], # 1e-6,
+                    dlrc= 1-1e-6, #fitAttempt$par[7], 
+                    lp  = -fitAttempt$value,
+                    ll  = loglik,
+                    Persec = unlist(list2do[[pt]][1,19])))
+
+}
+
+}
+
+```
+
+```{r Model comp}
+fit2 <- read.csv("OPTIMfits/res_prob_2parms.csv"); 
+fit2$parms <- 2; fit2$res <- 0; fit2$sal <- 1e-6; fit2$mem <- 1-1e-6; fit2$zet <- 1e-6; fit2$dlrc <- 1e-10
+fit3 <- read.csv("OPTIMfits/res_prob_3parms.csv");
+fit3$parms <- 3; fit3$sal <- 1e-6; fit3$mem <- 1-1e-6; fit3$zet <- 1e-6;  fit3$dlrc <- 1e-10
+fit4 <- read.csv("OPTIMfits/res_prob_4parms.csv");
+fit4$parms <- 4; fit4$mem <- 1-1e-6; fit4$zet <- 1e-6;  fit4$dlrc <- 1e-10
+fit5 <- read.csv("OPTIMfits/res_prob_5parm.csv");
+fit5$parms <- 5; fit5$zet <- 1e-6;  fit5$dlrc <- 1e-10
+fit6 <- read.csv("OPTIMfits/res_prob_6parms.csv");
+fit6$parms <- 6; fit6$dlrc <- 1e-10
+fit7 <- read.csv("OPTIMfits/res_prob_7parms.csv");
+fit7$parms <- 7; 
+fitWSLS <- read.csv("OPTIMfits/res_prob_WSLS.csv");
+fitWSLS$parms <- "WSLS"; fitWSLS$tau <- 0.01; fitWSLS$lrc <- 0.99; fitWSLS$mem <- 1-1e-6; fitWSLS$zet <- 1e-6; fitWSLS$dlrc <- 1e-10;
+fitPH <- read.csv("OPTIMfits/res_prob_PH.csv");
+fitPH$parms <- "PH"; fitPH$res <- 0; fitPH$mem <- 1-1e-6; fitPH$zet <- 1e-6; fitPH$dlrc <- 1e-10
+fitPH <- fitPH %>% dplyr::select(X, ID, tau, lrc, res, sal, mem, zet, dlrc, lp, ll, Persec, parms)
+fitWSLS <- fitWSLS %>% dplyr::select(X, ID, tau, lrc, res, sal, mem, zet, dlrc, lp, ll, Persec, parms)
+
+fit_compare <- rbind(fit2, fit3, fit4, fit5, fit6, fit7, fitPH, fitWSLS) %>% dplyr::select(2:13)
+
+### Comparing models in scatter plots ###
+
+regular_models <- foreach(i = c(2:7), .combine = rbind) %dopar% {
+  
+compare <- fit_compare %>%
+  filter(parms == i) %>%
+  mutate(BIC = -2 * ll + log(60) * as.numeric(i),
+         AIC = -2 * ll + 2 * as.numeric(parms))
+
+data.frame(
+  compare
+)
+}
+
+PH_compare <- 
+  fit_compare %>%
+  filter(parms == "PH") %>%
+  mutate(BIC = -2 * ll + log(60) * as.numeric(3),
+         AIC = -2 * ll + 2 * as.numeric(3))
+
+comparisons <- rbind(regular_models, PH_compare)
+
+kruskal.test(BIC ~ parms, data = comparisons %>% filter(parms %in% c(3, 4, 5)))
+
+comparisons %>%
+  group_by(parms) %>%
+  summarise(sumll = mean(ll),
+            sumlp = mean(lp),
+
+            BIC   = mean(BIC),
+            AIC   = mean(AIC),.groups = 'keep') %>%
+  distinct()
+
+#overall metric comparison
+plot_comparisons <- comparisons %>%
+group_by(parms) %>%
+mutate(
+       PersecOrd = cut(
+          Persec,
+          breaks = c(-Inf, 4, 10, 17, 27, Inf),
+          labels = c("1", "2", "3", "4", "5")),
+       PersecOrd = factor(
+          PersecOrd,
+          levels = c("1", "2", "3", "4", "5"),
+          ordered = T
+    )) %>%
+pivot_longer(c(9:10, 13:14), names_to = "Metric", values_to = "Value")
+  
+ggplot(plot_comparisons)+
+  
+  geom_jitter(aes (parms, Value, color = PersecOrd), alpha = 0.6, width = 0.1)+
+  stat_summary(aes(parms, Value, color = PersecOrd), geom = 'point', color = 'red')+
+  stat_summary(aes(parms, Value, color = PersecOrd), geom = 'errorbar', width = 0.1, color = 'red')+
+  facet_wrap(~Metric, scales = "free")+
+  labs(title = "Model Comparison")+
+  tidybayes::theme_ggdist()
+
+#BIC comparison across models
+BIC_compare <- comparisons %>%
+group_by(parms) %>%
+pivot_wider(names_from = "parms", values_from = "BIC", id_cols = "ID")
+
+BICPLOT <- plyr::join(BIC_compare, plot_comparisons[c(1, 11)], by = "ID") %>% 
+  distinct() %>%
+  dplyr::select(1:9) %>%
+  pivot_longer(c(2, 4:8), names_to = "Alternatives", values_to = "Values") %>%
+  rename(Three = 2) %>%
+  
+  ggplot()+
+
+  geom_point (aes(Three, Values, color = Values, alpha = Three))+
+    geom_abline(intercept = 0, slope = 1)+
+  geom_abline(intercept = 6, slope = 1,  alpha = 0.5)+
+  geom_abline(intercept = -6, slope = 1, alpha = 0.5)+
+  geom_abline(intercept = 10, slope = 1, alpha = 0.3)+
+  geom_abline(intercept = -10, slope = 1,alpha = 0.3)+
+  geom_smooth(aes(Three, Values), color = 'black', method = "lm", show.legend = F)+
+  #coord_cartesian(xlim = c(0,160), ylim = c(0,160))+
+  #scale_color_brewer()+
+  scale_color_gradient(guide = F, trans = 'log10', breaks = c(40, 80, 300))+
+  scale_alpha_continuous(guide = F)+
+  facet_wrap(~Alternatives, scales = 'free')+
+  labs(#title = "BIC Model Comparisons",
+       #subtitle = "Solid black reference line added with Bayes factors of +/- 6 and +/- 10",
+       x = expression(paste("BIC Values of our core 3 parameter model", " : ", theta, " = ","[",tau," ", "+", " ",lambda, " ",'+', " ",eta[pr], "]") ),
+       y = "BIC Values of our alternative models")+
+  tidybayes::theme_tidybayes()+
+  theme(strip.background.x = element_blank(),
+        strip.text.x = element_text(face = 'bold', size = 11))
+
+comparisons %>%
+  pivot_longer(c(9:10, 13, 14), names_to = "Metric", values_to = "Values") %>%
+  
+  ggplot()+
+  geom_smooth(aes(Persec, Values, color = parms), method = "lm")+
+  facet_wrap(~Metric, scales = "free")+
+  
+  tidybayes::theme_ggdist()
+
+```
+
+```{r Testing parameter fits pt 1}
+
+fit_use = fit5
+p       = 5
+
+fit_clean_plot <- fit_use %>% #Clean up parameter estimates for plotting
+  dplyr::select(-X) %>%
+  filter(tau != 'Error : $ operator is invalid for atomic vectors\n')%>%
+  na.omit() %>%
+  as.data.frame() %>%
+  pivot_longer(2:6, names_to = "Factor", values_to = "Value") %>%
+  mutate(Factor = factor(Factor, levels = c("tau", "lrc", "res", "sal", "mem"), 
+                       ordered = T),
+       Value = as.numeric(Value),
+       PersecTot = as.numeric(Persec),
+       PersecOrd = cut(
+          PersecTot,
+          breaks = c(-Inf, 4, 10, 17, 27, Inf),
+          labels = c("1", "2", "3", "4", "5")),
+       PersecOrd = factor(
+          PersecOrd,
+          levels = c("1", "2", "3", "4", "5"),
+          ordered = T
+    )
+      ) %>%
+  distinct()
+
+ggpubr::ggarrange(
+ggplot(fit_clean_plot %>%
+         filter(Factor == 'tau'))+
+  geom_jitter(aes(x = Value, y = Factor), alpha = 0.5, position = position_nudge(y = -0.1))+
+  ggridges::geom_density_ridges2(aes(x = Value, y = Factor), fill = '#66A61E', alpha = 0.7,
+                                 stat = "binline", bins = 40, scale = 0.95)+
+  labs(y = "", x = "")+
+  scale_fill_brewer(palette = "Dark2")+
+  tidybayes::theme_tidybayes()+
+  scale_y_discrete(labels=c(
+                            "tau" = expression(paste(tau))
+                            ))+
+  scale_fill_brewer(palette = "Dark2", direction = -1)+
+  tidybayes::theme_tidybayes()+
+       theme(
+         strip.background = element_blank(),
+         strip.text = element_text(size = 14),
+         legend.box.background = element_rect(colour = "black"),
+         legend.position = 'none', 
+         legend.direction = 'horizontal',
+         axis.title = element_text(size = 18),
+         legend.text = element_text(size = 14), 
+         legend.title = element_text(size = 14), 
+         axis.text = element_text(size = 14)
+     ),
+ggplot(fit_clean_plot %>% 
+         filter(Factor != 'tau'))+
+  geom_jitter(aes(x = Value, y = Factor), alpha = 0.5, position = position_nudge(y = -0.1))+
+  ggridges::geom_density_ridges2(aes(x = Value, y = Factor, fill = Factor), alpha = 0.7,
+                                 stat = "binline", bins = 40, scale = 0.95) +
+  labs(y = "", x = "Parameter Values (Arbitrary Units)")+
+  scale_fill_brewer(palette = "Dark2")+
+  tidybayes::theme_tidybayes()+
+  scale_y_discrete(labels=c(
+                            #"tau" = expression(paste(tau)), 
+                            "lrc" = expression(paste(lambda)),
+                            "res" = expression(paste(eta["pr"])),
+                            "mem" = expression(paste(phi)),
+                            "sal" = expression(paste("S"))
+                            ))+
+  scale_fill_brewer(palette = "Dark2", direction = -1)+
+  tidybayes::theme_tidybayes()+
+       theme(
+         strip.background = element_blank(),
+         strip.text = element_text(size = 14),
+         legend.box.background = element_rect(colour = "black"),
+         legend.position = 'none', 
+         legend.direction = 'horizontal',
+         axis.title = element_text(size = 18),
+         legend.text = element_text(size = 14), 
+         legend.title = element_text(size = 14), 
+         axis.text = element_text(size = 14)
+     ),
+nrow = 2,heights = c(1,3)
+)
+
+```
+
+```{r Test parameter fits pt 2, messages = F, warnings = F}
+
+do = 1 #set to 1 to run recovery analysis
+fit_use = fit5
+p       = 5
+
+registerDoParallel(cores = 6)
+
+FitRealBehav <- foreach(pt=1:692, .combine = rbind) %dopar% { #create new data based on individual parameter estimates
+  
+    parms         <- as.numeric(fit_use[pt,3:(p+2)])
+    data          <- as.data.frame(RW_list[[pt]][1:3])
+
+    fitA          <- NA; # clear the decks
+try(fitA          <- reversal_RW(parms, 
+                                 data, 
+                                 detail = T))
+try(sumll         <- reversal_RW(parms, 
+                                 data, 
+                                 detail = F))
+    
+    fitA          <- as.data.frame(fitA[2:61,])
+    
+    data.frame(
+               ID         = RW_list[[pt]][17],
+               Trial      = as.numeric(fitA$Trial),
+               Action     = fitA$Action,
+               Outcome    = fitA$Outcome,
+               
+               Q1         = fitA$Q1,
+               Q2         = fitA$Q2,
+               Q3         = fitA$Q3,
+               
+               PE         = fitA$PE,
+               PEsim      = fitA$PEsim,
+               Learn      = fitA$Learning,
+                       
+               ll         = fitA$ll,
+                       
+               ws         = fitA$ws,
+               ls         = fitA$ls,
+               
+               simQ1      = fitA$simQ1,
+               simQ2      = fitA$simQ2,
+               simQ3      = fitA$simQ3,
+               
+               simD       = fitA$simD,
+               simR       = fitA$simR,
+               simP       = fitA$simP,
+               
+               sumll      = sumll
+    )
+               
+    
+}
+
+FitRealBehav    <- FitRealBehav %>% filter(Trial != is.na(Trial))
+FitRealBehav_df <- plyr::join(FitRealBehav, 
+                         probabilistic %>% 
+                           arrange(ID) %>%
+                           dplyr::select(ID, Final1, Conf1, Age:ICARTot, Control),
+                        by = c("ID")
+                          
+                         )
+
+FitRealBehav_df <- plyr::join(FitRealBehav_df, fit_use[,2:(p+2)], by = "ID") %>% 
+  distinct()
+
+# Recoverability ----------------------------------------------------
+
+if(do){
+  
+FitRecoveredData <- split(FitRealBehav_df, f = FitRealBehav_df$ID)
+n2do = 692
+
+recover_prob5 <- foreach(pt=1:n2do, .combine = rbind) %dopar% { # multicore function for efficiency
+
+           try(tryP <- as.numeric(fit_use[pt, 3:7])); 
+               data <- FitRecoveredData[[pt]][c(2, 17, 18)]
+      
+               fitAttempt                    <- NA; # clear the decks
+           try(fitAttempt                    <- optim(fn = wrapper_RW, #change to WSLS for last 4 parm fit
+                                                     par = tryP, 
+                                                     data = data,
+                                                     scbeta0 = -1
+                                                     ))
+      loglik <- NA; 
+      try( loglik <- -wrapper_RW(fitAttempt$par, data, scbeta = NA));
+          
+          try(data.frame(
+                     ID    = FitRecoveredData[[pt]][1,1],
+                    tauRec = fitAttempt$par[1],
+                    lrcRec = fitAttempt$par[2],
+                    resRec = fitAttempt$par[3],
+                    salRec = fitAttempt$par[4],
+                    memRec = fitAttempt$par[5],
+                    
+                    tau    = FitRecoveredData[[pt]][1, 39],
+                    lrc    = FitRecoveredData[[pt]][1, 40],
+                    res    = FitRecoveredData[[pt]][1, 41],
+                    sal    = FitRecoveredData[[pt]][1, 42], #add for four parms
+                    mem    = FitRecoveredData[[pt]][1, 43], #add for five parms
+
+                    lp  = -fitAttempt$value,
+                    ll  = loglik,
+                    Persec = FitRecoveredData[[pt]][1,30]))
+
+}
+
+correlations5 <- recover_prob5 %>%
+  dplyr::select(tauRec, lrcRec, resRec, memRec, salRec, tau, lrc, res, mem, sal, ID) %>%
+  distinct() %>%
+  mutate(across(1:10, ~as.numeric(.x))) %>%
+  dplyr::select(1:10) %>%
+  stats::cor(method = 'spearman')
+  
+recover_matrix5 <- ggcorrplot::ggcorrplot(correlations5[6:10, 1:5], lab = T)
+
+}
+
+recover_matrix5_plot <- recover_matrix5 + 
+  scale_x_discrete(labels=c("tau" = expression(paste(tau)), 
+                            "lrc" = expression(paste(lambda[1])),
+                            "res" = expression(paste(eta[pr])),
+                            "mem" = expression(paste(phi)),
+                            "sal" = "S")) +
+  scale_y_discrete(labels=c("tauRec" = expression(paste(tau['Recovered'])), 
+                            "lrcRec" = expression(paste(lambda["1   Recovered"])),
+                            "resRec" = expression(paste(eta["pr   Recovered"])),
+                            "memRec" = expression(paste(phi["Recovered"])),
+                            "salRec" = expression(paste("S"["Recovered"]))))
+  
+```
+
+
+# Behavioural validity ----------------------------------------------------
+
+```{r}
+
+PEplot <- FitRealBehav_df %>%
+  group_by(ID) %>%
+  mutate(PersecOrd = ifelse(Persec > 3.66, "High", "Low"),
+         ICAROrd   = ifelse(ICARTot > 5, "High", "Low"),
+         Block     = ifelse(Trial < 31, "Block 1", "Block 2")) %>%
+  group_by(ID, Block) %>%
+  mutate(meanPE    = mean(PE))
+
+
+CardSelectMod <- FitRealBehav_df %>% 
+  mutate(Block = ifelse(Trial %in% 1:30, 1, 2)) %>%
+  group_by(ID, Block) %>% 
+  mutate(PosFeed   = sum(Outcome==10),
+         NegFeed   = sum(Outcome==-5),
+         WinSwitch = sum(ws)/PosFeed,
+         LoseStay = sum(ls)/NegFeed) %>%
+  dplyr::select(WinSwitch, LoseStay, ID, Block, tau, lrc, Persec, ICARTot, Age, Sex, Control) %>%
+  distinct() %>%
+  plyr::join(probabilistic %>%
+               dplyr::select(ID, Urn1, Urn2, Urn3),
+                by = 'ID') %>%
+  distinct() 
+
+summary(lm(scale(Urn1) ~ scale(tau), data = CardSelectMod %>% filter(Block == 2)))
+confint(lm(scale(Urn2) ~ scale(tau), data = CardSelectMod %>% filter(Block == 1)))
+
+### Model P6 ####
+
+model.compare(lme4::lmer(PE    ~ scale(Persec) * Block + scale(ICARTot) + Age + Sex + Control + (1|ID), 
+                         data = PEplot, 
+                         na.action = na.fail))
+
+#Prediction error plot
+ggplot(PEplot %>% pivot_longer(44:45, names_to = "Trait", values_to = "Values"))+
+  
+  geom_vline(xintercept = 30, alpha = 0.5)+
+  geom_hline(yintercept = 0,  alpha = 0.5)+
+  geom_hline(yintercept = max(),  alpha = 0.5)+
+  stat_summary(aes(Trial, scale(PE),  fill = Values), alpha = 0.5, geom = "ribbon")+
+  stat_summary(aes(Trial, scale(PE), color = Values), geom = "line") +
+  stat_summary(aes(Trial, scale(PE), color = Values), geom = "point") +
+  
+  ggpubr::stat_compare_means(aes(Trial, scale(PE), color = Values), label = 'p.signif', label.y = 0.3, hide.ns = T)+
+  facet_wrap(~Trait, 
+             labeller = labeller(Trait = c(ICAROrd = "ICAR", PersecOrd = "Persecutory Ideation")))+
+  tidybayes::theme_ggdist()+
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size = 16))
+
+#all parms visualised
+
+ggplot(PEplot %>% 
+         pivot_longer(39:43, names_to = "Parameter", values_to = "Metric") %>%
+         ungroup() %>%
+         dplyr::select(Parameter, Metric, ID, PersecOrd) %>%
+         mutate(Parameter = factor(Parameter, levels = c('tau', 'lrc', 'res', 'sal', 'mem')))%>%
+         distinct())+
+  
+  geom_jitter(     aes(PersecOrd, Metric, color = Parameter), alpha = 0.5,
+                   width = 0.2) +
+  geom_flat_violin(aes(PersecOrd, Metric, fill = Parameter), alpha = 0.5, color = NA,
+                   show.legend = F, position = position_nudge(x = 0.25))+
+  geom_boxplot(    aes(PersecOrd, Metric,  fill = Parameter), color = 'black',
+                   show.legend = F, width = 0.2)+
+  
+  ggpubr::stat_compare_means(aes(PersecOrd, Metric), 
+                             show.legend = F, position = position_nudge(x = 0.3, y = 0.1))+
+  
+  labs(y = "Arbitrary Units",
+       x = "Persecutory Ideation")+
+  
+  scale_color_brewer(palette = "Dark2")+
+  scale_fill_brewer(palette = "Dark2")+
+  
+  facet_wrap(~Parameter, scale = "free")+
+  
+  tidybayes::theme_ggdist() +
+  theme(
+    strip.background.x = element_blank(),
+    strip.text.x = element_text(size = 14, face = 'bold'),
+    legend.position = 'none'
+  )
+
+#Behavioural reproduction
+main1_real <- ggplot(
+  FitRealBehav_df  %>%
+    as.data.frame() %>%
+    pivot_longer(
+      c(5:7, 14:16),
+      names_to = "Q",
+      values_to = "Value"
+    ) %>%
+    mutate(
+      Q = factor(Q, 
+                 levels = c("Q1", "simQ1", "Q2", "simQ2", "Q3", "simQ3"),
+                 ordered = T)
+    )
+) +
+  stat_summary(aes(Trial, Value, color = Q), geom = "line")+
+  stat_summary(aes(Trial, Value, color = Q), 
+               geom='ribbon', 
+               fun.data = mean_cl_normal, 
+               fun.args=list(conf.int=0.95),
+               alpha = 0.1)+
+  labs(
+    #title = "Blue points = mean action | Black points = mean rewards",
+    x = "Trial",
+    y = "Expected Value")+
+  theme_minimal()+
+  scale_color_brewer(palette = "Paired")+
+  theme(
+    legend.position = c(0.25, 1),
+    legend.direction = 'horizontal',
+    legend.title = element_blank(),
+    plot.title = element_text(size = 14))
+
+main1_real 
+
+#plot Figure S4
+((main1_real | recover_matrix5_plot) / BICPLOT) & plot_annotation(tag_levels = 'A')
+#
+
+FitRealBehav_df %>%
+  dplyr::select(Persec, Age, ICARTot, tau, lrc, res, sal) %>%
+  distinct() %>%
+  stats::cor(method = 'spearman') %>%
+  ggcorrplot::ggcorrplot(lab = T)
+
+FitRealBehav_df %>%
+  pivot_longer(39:43, names_to = "Parm", values_to = "Value") %>%
+  dplyr::select(Parm, Value, Persec, ICARTot) %>%
+  pivot_longer(3:4, names_to = "Trait", values_to = "Score") %>%
+  mutate(Parm = factor(Parm)) %>%
+  distinct() %>%
+  ggplot() +
+  geom_smooth(aes(Score, Value, color = Parm), method = 'lm')+
+  ggpubr::stat_cor(aes(Score, Value, color = Parm), show.legend = F, method = 'spearman') +
+  facet_wrap(~Trait, scales = "free")+
+  scale_color_brewer(palette = "Dark2")+
+  tidybayes::theme_ggdist()+
+  theme(axis.title.x = element_blank(),
+        strip.background.x = element_blank())
+ 
+FitModel <- FitRealBehav_df %>%
+  dplyr::select(tau, lrc, res, sal, mem, ICARTot, Persec, ID, Age, Sex, Control) %>%
+  distinct()
+
+#Model P7
+#a
+model.compare(lm(scale(Persec) ~ 
+                           scale(lrc) + scale(tau) + scale(res) + scale(sal) + scale(mem),
+                         data = FitModel,
+                         na.action = na.fail))
+#b
+model.compare(lm(scale(Persec) ~ 
+                           scale(lrc) + scale(tau) + scale(res) + scale(sal) + scale(mem) + scale(ICARTot) + scale(Age) + Sex + scale(Control),
+                         data = FitModel,
+                         na.action = na.fail))
+
+# check with ll
+
+# Model P8
+ModelP8 <- FitRealBehav_df %>% 
+                     group_by(ID) %>% 
+                     mutate(sumLL = sum(ll)) %>% 
+                     dplyr::select(sumLL, Persec, ID, tau, Age, Sex, Control, ICARTot) %>% 
+                     distinct()
+model.compare(lm(scale(Persec) ~ scale(tau) + scale(ICARTot) + Age + Sex + Control + sumLL,
+                         data = ModelP8,
+                         na.action = na.fail))
+
+```
