@@ -23,10 +23,10 @@ groundhog.library(patchwork, date = '2021-01-01')
 ###    let's declutter this if we find ourselves needing the thing to run on more machines.
 
 ###  General utilities by Michael 
-try(source("gen_ut.R"))
+try(source("Models/gen_ut.R"))
 
 ### The key RW_Reversal script
-try(source("RW_Models.R"))
+try(source("Models/RWModels.R"))
 
 ```
 

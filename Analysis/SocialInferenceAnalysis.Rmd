@@ -1,6 +1,6 @@
 ---
-title: "serial Reversal Dictator (belief-based)"
-author: "Michael and Joe"
+title: "Serial Reversal Dictator (belief-based)"
+author: "Barnby & Moutoussis"
 date: "17 Nov 2020 onwards"
 output:
   pdf_document: default
@@ -30,7 +30,8 @@ library(tidyquant)
 opar = par()
 
 ### source the custom fucntions
-try(source("SocialInferenceModels.R"))
+try(source("Models/SocialInferenceModels.R"))
+try(source("Models/gen_ut.R"))
 
 ### Read data
 try(Dictator_20model <- read.csv('Data/DictatorClean_Repo.csv') %>% dplyr::select(-X)) 
@@ -124,12 +125,6 @@ matSavHPLI<-IDtoid(matSavHPLI); print(nrow(matSavHPLI)/20) # no 3 is dodgy!
 #LI  259     138
 #HI  219     77
 #Ma  478     215
-
-write.csv(matSavLPLI, 'matSavLPLI.csv')
-write.csv(matSavHPHI, 'matSavHPHI.csv')
-write.csv(matSavHPLI, 'matSavHPLI.csv')
-write.csv(matSavLPHI, 'matSavLPHI.csv')
-
 
 ```
 
@@ -304,8 +299,6 @@ SD       = Fit1$par[7],
 ESVhi    = Fit1$par[8],
 ESVsi    = Fit1$par[9],
 eta      = Fit1$par[10],
-#salHI    = Fit1$par[11],
-#salSI    = Fit1$par[12],
 wHI0rec    = Fit2$par[1],
 wSI0rec    = Fit2$par[2],
 wHIrec     = Fit2$par[3],
@@ -316,8 +309,6 @@ SDrec      = Fit2$par[7],
 ESVhirec   = Fit2$par[8],
 ESVsirec   = Fit2$par[9],
 etarec     = Fit2$par[10]
-#salHIrec   = Fit2$par[11],
-#salSIrec   = Fit2$par[12]
 )
 }
 
@@ -1023,7 +1014,6 @@ recovery_mat_plot
 #unadjsuted
 confint(lme4::lmer(scale(HI) ~ scale(Persec) + (1|ID), 
                          data = Dictator_w_parms, na.action = na.fail))
-
 summary(lme4::lmer(scale(HI) ~ block * Order + (1|ID), 
                          data = Dictator_w_parms, na.action = na.fail))
 confint(lme4::lmer(scale(HI) ~ block * Order + (1|ID), 
@@ -1203,7 +1193,7 @@ S11b
 
 ```{r Joint analysis}
 
-typeCheckComb <- read.csv('Data/CombinedAnalysis.csv')
+typeCheckComb <- read.csv('Data/CombinedAnalysis.csv') %>% dplyr::select(-X)
 
 nonSocParms <- typeCheckComb %>%
   dplyr::select(tau:sal, ID) %>%
