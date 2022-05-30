@@ -18,7 +18,6 @@ Load the key libraries and also do opar=par() to restore graphics if need be
 
 ```{r load_data_and_libraries, include=FALSE}
 
-library(matlab)    # This provides some convenient matlab/octave functions
 library(R.matlab)  # Functions for handling mat files etc.
 library(Hmisc)
 library(ppcor)
@@ -30,8 +29,8 @@ library(tidyquant)
 opar = par()
 
 ### source the custom fucntions
-try(source("Models/SocialInferenceModels.R"))
-try(source("Models/gen_ut.R"))
+source("Models/SocialInferenceModels.R")
+source("Models/gen_ut.R")
 
 ### Read data
 try(Dictator_20model <- read.csv('Data/DictatorClean_Repo.csv') %>% dplyr::select(-X)) 
@@ -677,10 +676,10 @@ ggplot(sCor %>%
 
 ```{r}
 
-CBMdatLL <- readMat('CBMfits/hbi_BBLL.mat')
-CBMdatHL <- readMat('CBMfits/hbi_BBHL.mat')
-CBMdatLH <- readMat('CBMfits/hbi_BBLH.mat')
-CBMdatHH <- readMat('CBMfits/hbi_BBHH.mat')
+CBMdatLL <- readMat('Model Fit/CBMfits/hbi_BBLL.mat')
+CBMdatHL <- readMat('Model Fit/CBMfits/hbi_BBHL.mat')
+CBMdatLH <- readMat('Model Fit/CBMfits/hbi_BBLH.mat')
+CBMdatHH <- readMat('Model Fit/CBMfits/hbi_BBHH.mat')
 
 library(tidyquant)
 
@@ -773,7 +772,6 @@ CBMfit <- rbind(datLL, datHL, datLH, datHH)
 ```{r Select model to be used}
 
 CBMsimDF <- CBMfit %>% dplyr::select(1:9, 11, 15) %>% distinct() %>% arrange(ID)
-CBMsimDF2eta <- CBMfit2eta %>% dplyr::select(1:10, 12, 16) %>% distinct() %>% arrange(ID)
 
 CBMsim <- foreach (i = 1:693, .combine = rbind) %dopar% {
 
@@ -1085,7 +1083,7 @@ model.compare(lm(scale(Persec) ~
     data = modelGlobal,
     na.action = na.fail))
 
-# Policy assessment/ Figure S9
+# Policy assessment/ Figure S12
 
 weights <- modelGlobal %>% 
   mutate(PersecOrd = ifelse(Persec < 3.66, 1, 2)) %>%
@@ -1233,8 +1231,6 @@ typeCheckComb <- plyr::join(Dictator_w_parms,
                               by = "ID") %>% 
   distinct()
 
-#write.csv(typeCheckComb, '/Users/josephbarnby/My Drive/Dropbox/PersonalModelling/CombinedAnalysis.csv')
-
 typeCheckComb_mod1 <- typeCheckComb %>% 
   dplyr::select(tau, Persec, Age, Sex, ICARTot, Control, 
                 meanHI, meanSI, ID) %>% 
@@ -1335,7 +1331,7 @@ withTau <- ggcorrplot::ggcorrplot(corr = combCor2$estimate,
 
 (noTau|withTau)
 
-ggplot(typeCheckComb %>% 
+left_F3 <- ggplot(typeCheckComb %>% 
          pivot_longer(c(meanHI, meanSI), "Attribution", values_to = "Value") %>% 
          dplyr::select(Value, Attribution, ID, tau) %>% 
          distinct()) + 
@@ -1345,17 +1341,17 @@ ggplot(typeCheckComb %>%
                    method = 'spearman', 
                    show.legend = F, 
                    label.y.npc = 0.2, 
-                   label.x.npc = 0.6, 
-                   size = 8)+
+                   label.x.npc = 0.5, 
+                   size = 6)+
   scale_color_manual(values = c('#DA7000','#7700DA'), name = "Attribution", 
                      labels = c('Harmful Intent', 'Self Interest'))+
-  labs(x = expression(paste(tau)), y = 'Mean of Attributions Over 20 Trials')+
+  labs(x = expression(paste('Decision Temperature (', tau, ')')), y = 'Mean of Attributions Over 20 Trials')+
   tidybayes::theme_tidybayes()+
   theme(legend.position = c(0.75, 0.9),
         axis.title = element_text(size = 24),
         axis.text = element_text(size =24),
-        legend.text = element_text(size = 18),
-        legend.title = element_text(size = 18))
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16))
 
 # distributions of parameters:
 library(bootnet)
@@ -1444,21 +1440,41 @@ r.random <- r.random %>% as.data.frame()
 names(r.random) <- names(graphNode)[c(1:9, 13)]
 r.diff<- r.diff %>% 
   as.data.frame() %>% 
-  rename(pval = 1) %>% 
-  mutate(Variable = names(r.random),
+  rename(rho = 1) %>% 
+  mutate(
+         lab = prob,
+         Variable = names(r.random),
          y = c(200, 250, 200, 250, 150, 250, 250, 200, 300, 250))
 
-ggplot(r.random %>%
+right_F3 <- ggplot(r.random %>%
          as.data.frame() %>%
          pivot_longer(1:10, 'Variable', values_to = 'Permutation'),
        aes(Permutation, group = Variable))+
   geom_histogram(bins = 100, position = 'dodge', color = 'grey')+
-  geom_vline(xintercept = r.diff$pval, color = ifelse(prob<0.05, 'red', 'black'))+
-  annotate(geom  = 'label', x = r.diff$pval + 0.008, y = r.diff$y, 
-           label = paste(r.diff$Variable, '\n p = ', round(prob, 2)))+
+  geom_vline(xintercept = r.diff$rho, color = ifelse(prob<0.05, 'red', 'black'))+
+  annotate(geom  = 'label', x = r.diff$rho-0.01, y = r.diff$y, 
+           label = c(expression(paste('pHI'[0])),
+                     expression(paste('pSI'[0])),
+                     expression(paste('uHI'[0])),
+                     expression(paste('uSI'[0])),
+                     expression(paste(eta[dg])),
+                     expression(paste('u',pi)),
+                     expression(paste(w[0])),
+                     expression(paste(w[hi])),
+                     expression(paste(w[si])),
+                     expression(paste('Paranoia'))
+           ),
+           size = 5)+
   labs(x = expression(paste('Correlation Coefficient ', rho)), y = 'Count')+
-  theme_tq()+
-  theme(text = element_text(size = 14))
+  tidybayes::theme_tidybayes()+
+  theme(legend.position = c(0.75, 0.9),
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size =24),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18))
+
+(left_F3 | right_F3) & plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 16))
 
 model.compare(lm(scale(tau) ~ scale(pHI0) + scale(pSI0) + scale(uPi) + scale(eta) + scale(uHI0) + scale(uSI0) +
                  scale(wHI) + scale(w0) + scale(wSI) + scale(Persec) + scale(Age) + Sex + scale(Control), 
@@ -1579,6 +1595,15 @@ print(confint(x.a))
 #
 #
 #
+}
+
+meshgrid <- function(x,y){
+  mesh <- list()
+  m=length(x);
+  n=length(y);
+  mesh$x <- matrix(rep(x,each=n),nrow=n);
+  mesh$y <- matrix(rep(y,m),nrow=n)
+  return(mesh)
 }
 
 ```

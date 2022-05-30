@@ -7,26 +7,28 @@ output:
     toc: true
     theme: architect
     highlight: github
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
-
 
 ```{r, , include=FALSE, echo=FALSE, warning=F, message=F}
 # Computational modelling of Prob Learning----------------------------------------
 library(groundhog)
-groundhog.library(easystats, date = '2021-01-01')
-groundhog.library(tidyverse, date = '2021-01-01')
-groundhog.library(ggplot2, date = '2021-01-01')
-groundhog.library(ggrepel, date = '2021-01-01')
-groundhog.library(patchwork, date = '2021-01-01')
+library(easystats)
+library(tidyverse)
+library(ggplot2  )
+library(ggrepel  )
+library(patchwork)
 
 ### Hi Joe sorry there are prettier ways of catering for multiple machines,
 ###    let's declutter this if we find ourselves needing the thing to run on more machines.
 
 ###  General utilities by Michael 
-try(source("Models/gen_ut.R"))
+source("Models/gen_ut.R")
 
 ### The key RW_Reversal script
-try(source("Models/RWModels.R"))
+source("Models/RWModels.R")
 
 ```
 
@@ -67,10 +69,10 @@ plot(wslsD[,1]+0.25,wslsD[,3],t='l',col='cyan',lwd=2,xlab='time',ylab='action (b
 
 ```
 
-### Demo plots for the RW (Q-learning) 
-We will now plot Q values, decisions and returns
-for two artificial examples of reversal learning and
-the respective synthetic data.
+### Demo plots for the RW (Q-learning)
+
+We will now plot Q values, decisions and returns for two artificial
+examples of reversal learning and the respective synthetic data.
 
 ```{r, warning=F, message=F, echo=FALSE}
 #RW Reversal test plots
@@ -121,14 +123,13 @@ ggplot2::ggplot(
 
 ```
 
-### Demo plots for win-stay lose-shift 
-Again plot Q values, decisions and returns. The WSLS
-model is formulated as a special case of the RW model
-with memory (or forgetting). The memory simply serves
-to keep account which non-win choices lost most recently
-and avoid those more. The only necessary parameter is 
-'zeta', the lapse rate (or eta-greedy) noise parameter.
+### Demo plots for win-stay lose-shift
 
+Again plot Q values, decisions and returns. The WSLS model is formulated
+as a special case of the RW model with memory (or forgetting). The
+memory simply serves to keep account which non-win choices lost most
+recently and avoid those more. The only necessary parameter is 'zeta',
+the lapse rate (or eta-greedy) noise parameter.
 
 ```{r, warning=F, message=F, echo=FALSE}
 ### ~~~~~~~~ Show test plot for Win-stay lose-shift ~~~~~~~~~~~~~
@@ -334,7 +335,6 @@ model.compare(lm(scale(LoseStay) ~ scale(Persec) * scale(ICARTot) + Age + Sex + 
                 data = winSwitchModel, na.action = na.fail))
 
 ```
-
 
 ```{r, warning=F, message=F}
 # Max parameter values ----------------------------------------------------
@@ -1024,7 +1024,6 @@ recover_matrix5_plot <- recover_matrix5 +
                             "salRec" = expression(paste("S"["Recovered"]))))
   
 ```
-
 
 # Behavioural validity ----------------------------------------------------
 
