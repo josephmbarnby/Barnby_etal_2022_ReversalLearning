@@ -4,7 +4,7 @@
 # Simple RW model ---------------------------------------------------------
 
 # some utilities useful for RW and related modelling:
-try(source("gen_ut.R"))
+#try(source("gen_ut.R"))
 #try(source("/home/michael/Insync/michael.moutoussis@googlemail.com/Google Drive - Shared with me/ComputationalModels/ProbabilisticReasoning/gen_ut.R"))
 
 reversal_RW <- function(par, data, detail = T) {
@@ -85,12 +85,17 @@ reversal_RW <- function(par, data, detail = T) {
     simQ <- q
     simR <- l;     # will hold simulated outcome
     simS <- salience
-    simL <- learning
-    retp <- matrix(
+    simL <- learning; simL[1] <- 0;
+    retp1 <- matrix(
       c(
         0.8,0.5,0.2,0.2,0.5,0.8
         ),
-      3,2)   # prob of win per action in block 1, or win in block 2
+      3,2)   # prob of win per action in block 1
+    retp2 <- matrix(
+      c(
+        0.5,0.2,0.8,0.5,0.8,0.2
+        ),
+      3,2)   # prob of win per action in block 1
   }
 
   # Main loop over trials, for learning,
@@ -120,12 +125,8 @@ reversal_RW <- function(par, data, detail = T) {
       salience[t, c(-action[t], -4)]  <- salience[t-1, c(-action[t], -4)] #update other rows with t-1 salience
       learning[t]                     <- lrc * salience[t,action[t]] #learning rate based on lrc and salience modifier
 
-      if(learning[t] > 1) {
-         learning[t] <- 0.99999
-      }
-      if(learning[t] < 0) {
-         learning[t] <- 0.00001
-      }
+      if(learning[t] > 1) {learning[t] <- 0.99999}
+      if(learning[t] < 0) {learning[t] <- 0.00001}
 
       #Q updating
       q[t,1:3]                        <- q[t-1, 1:3] #update trial t of Q with priors
@@ -155,7 +156,7 @@ reversal_RW <- function(par, data, detail = T) {
       #Generate simulated data in parralell
       if (detail == T) {
         if (t == 32) {
-          simQ[t-1, 1:3] <- simQ[t-1, 1:3] + (reset * (2.5 - simQ[t-1, 1:3])) #reset priors at block 2
+          simQ[t-1, 1:3]  <- simQ[t-1, 1:3] + (reset * (2.5 - simQ[t-1, 1:3])) #reset priors at block 2
         }
 
         simPmotiv         <- pGibbs(simQ[t-1,1:3],tau); #(exp(simQ[t-1, 1:3]/tau))/sum(exp(simQ[t-1,1:3]/tau))
@@ -165,9 +166,9 @@ reversal_RW <- function(par, data, detail = T) {
         simP[t]           <- Pi[simA]                          # to compare w. experimental in due
 
         if (t < 32){
-           simR[t] <- sample(c(10,-5),1,prob=retp[simA,])  # simulated outcome
+           simR[t] <- sample(c(10,-5),1,prob=retp1[simA,])  # simulated outcome
         } else {  # simple but a bit esoteric reversing, relies on symmetry of two blocks
-           simR[t] <- sample(c(-5,10),1,prob=retp[simA,])  # simulated outcome
+           simR[t] <- sample(c(10,-5),1,prob=retp2[simA,])  # simulated outcome
         }
 
         peSim[t] <- simR[t] - simQ[t-1,simA]
@@ -176,12 +177,8 @@ reversal_RW <- function(par, data, detail = T) {
         simS[t, c(-simA, -4)]  <- simS[t-1, c(-simA, -4)] #update other rows with t-1 salience
         simL[t]                <- lrc * simS[t,simA] #learning rate based on lrc and salience modifier
 
-        if(simL[t] > 1) {
-           simL[t] <- 0.99999
-        }
-        if(simL[t] < 0) {
-           simL[t] <- 0.00001
-        }
+        if(simL[t] > 1) {simL[t] <- 0.99999}
+        if(simL[t] < 0) {simL[t] <- 0.00001}
 
         simQ[t,1:3]              <- simQ[t-1, 1:3] #set priors for Q using t-1
         simQ[t,simA]             <- simQ[t,simA] + simL[t] * peSim[t] #update Q at trial t
@@ -663,3 +660,52 @@ wrapper_RW_30 <- function(par, data, scbeta0=-1,check=0){
 
 } # end of wrapper_RW
 
+#Utility
+#
+pGibbs <- function(q,T=1.0,ind=NA) {
+# Gibbs softmax probabilities for vectors q and temperatures T.
+# Expect q to be a matrix with columns the different actions, all
+# subject to the same T.
+# If ind is NA, return the whole pGibbs matrix;
+# otherwise for cols. in ind.
+
+# old comment - for future devel:
+# Should use the result to create a number of decisions - in 1-D case
+# policy <- matrix( pGibbs(c(-1,0,1)),1)
+# choices <- as.vector( rMultinom( policy, 100));
+
+# test with
+# T <- c(0.1,0.3,1,2); q <- t(matrix(rep(c(0.1,0.5,0.6),4),3)); ind <- c(1,1,2,3);
+
+if (is.vector(q)){  q <- matrix(q,1); }; # convert to 1-row matrix
+nro = dim(q)[1]
+nco = dim(q)[2]
+if (!(is.vector(T))){ stop('T must be a vector in pGibbs'); };
+if (!(length(T)==nro)){ stop('q and T incompatible');  };
+
+T <- matrix(rep(T,nco),length(T)) ; # convert to matrix for ease
+                                    # of vect. op.
+# Express values relative to the biggest one to avoid
+# exponentiation overflows. Underflows don't matter so much.
+qmax   <- apply(q,1,max);
+qmax   <- matrix(rep(qmax,nco),nro,nco);
+unNorm <- exp((q-qmax)/T);
+# Normalizing factor:
+denoms <- rowSums(unNorm);
+denoms <- matrix(rep(denoms,dim(q)[2]),dim(q)[1]); # again into matrix
+# final probability:
+pGibbs <- unNorm / denoms;
+
+if (is.na(ind[1])) {
+    return( pGibbs );
+}
+else {
+    if (!(length(ind) == dim(q)[1])){stop('q and ind incompatible');}
+    else{
+      ind <- matrix(rep(ind,dim(q)[2]),length(ind));
+      # Next row a bit ridiculous - can't I just select the round(ind) elements??
+      return(  rowSums(  pGibbs*(col(ind) == round(ind)))   );
+    }
+}
+
+}

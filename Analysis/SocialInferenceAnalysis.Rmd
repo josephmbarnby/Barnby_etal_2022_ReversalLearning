@@ -1516,9 +1516,9 @@ Dictator_w_parms %>%
 
 data.frame(
 Trial = 1:60,
-CardA = c(rep(0.2, 30), rep(0.8, 30)),
-CardB = c(rep(0.5, 60)),
-CardC = c(rep(0.8, 30), rep(0.2, 30))
+CardA = c(rep(0.8, 30), rep(0.5, 30)),
+CardB = c(rep(0.5, 30), rep(0.2, 30)),
+CardC = c(rep(0.2, 30), rep(0.8, 30))
 ) %>%
   pivot_longer(CardA:CardC, 'Card', values_to = 'Probability') %>%
   ggplot(aes(Trial, Probability, color = Card)) + 

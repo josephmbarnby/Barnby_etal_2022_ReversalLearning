@@ -684,21 +684,21 @@ res_prob <- foreach(pt=1:n2do, .combine = rbind) %dopar% { # multicore function 
 ```
 
 ```{r Model comp}
-fit2 <- read.csv("OPTIMfits/res_prob_2parms.csv"); 
+fit2 <- read.csv("Model Fit/OPTIMfits/res_prob_2parms.csv"); 
 fit2$parms <- 2; fit2$res <- 0; fit2$sal <- 1e-6; fit2$mem <- 1-1e-6; fit2$zet <- 1e-6; fit2$dlrc <- 1e-10
-fit3 <- read.csv("OPTIMfits/res_prob_3parms.csv");
+fit3 <- read.csv("Model Fit/OPTIMfits/res_prob_3parms.csv");
 fit3$parms <- 3; fit3$sal <- 1e-6; fit3$mem <- 1-1e-6; fit3$zet <- 1e-6;  fit3$dlrc <- 1e-10
-fit4 <- read.csv("OPTIMfits/res_prob_4parms.csv");
+fit4 <- read.csv("Model Fit/OPTIMfits/res_prob_4parms.csv");
 fit4$parms <- 4; fit4$mem <- 1-1e-6; fit4$zet <- 1e-6;  fit4$dlrc <- 1e-10
-fit5 <- read.csv("OPTIMfits/res_prob_5parm.csv");
+fit5 <- read.csv("Model Fit/OPTIMfits/res_prob_5parm.csv");
 fit5$parms <- 5; fit5$zet <- 1e-6;  fit5$dlrc <- 1e-10
-fit6 <- read.csv("OPTIMfits/res_prob_6parms.csv");
+fit6 <- read.csv("Model Fit/OPTIMfits/res_prob_6parms.csv");
 fit6$parms <- 6; fit6$dlrc <- 1e-10
-fit7 <- read.csv("OPTIMfits/res_prob_7parms.csv");
+fit7 <- read.csv("Model Fit/OPTIMfits/res_prob_7parms.csv");
 fit7$parms <- 7; 
-fitWSLS <- read.csv("OPTIMfits/res_prob_WSLS.csv");
+fitWSLS <- read.csv("Model Fit/OPTIMfits/res_prob_WSLS.csv");
 fitWSLS$parms <- "WSLS"; fitWSLS$tau <- 0.01; fitWSLS$lrc <- 0.99; fitWSLS$mem <- 1-1e-6; fitWSLS$zet <- 1e-6; fitWSLS$dlrc <- 1e-10;
-fitPH <- read.csv("OPTIMfits/res_prob_PH.csv");
+fitPH <- read.csv("Model Fit/OPTIMfits/res_prob_PH.csv");
 fitPH$parms <- "PH"; fitPH$res <- 0; fitPH$mem <- 1-1e-6; fitPH$zet <- 1e-6; fitPH$dlrc <- 1e-10
 fitPH <- fitPH %>% dplyr::select(X, ID, tau, lrc, res, sal, mem, zet, dlrc, lp, ll, Persec, parms)
 fitWSLS <- fitWSLS %>% dplyr::select(X, ID, tau, lrc, res, sal, mem, zet, dlrc, lp, ll, Persec, parms)
@@ -951,7 +951,7 @@ FitRealBehav    <- FitRealBehav %>% filter(Trial != is.na(Trial))
 FitRealBehav_df <- plyr::join(FitRealBehav, 
                          probabilistic %>% 
                            arrange(ID) %>%
-                           dplyr::select(ID, Final1, Conf1, Age:ICARTot, Control),
+                           dplyr::select(ID, Final1, Age:ICARTot, Control),
                         by = c("ID")
                           
                          )
@@ -968,19 +968,19 @@ n2do = 692
 
 recover_prob5 <- foreach(pt=1:n2do, .combine = rbind) %dopar% { # multicore function for efficiency
 
-           try(tryP <- as.numeric(fit_use[pt, 3:7])); 
-               data <- FitRecoveredData[[pt]][c(2, 17, 18)]
+         tryP <- as.numeric(fit_use[pt, 3:7]); 
+         data <- FitRecoveredData[[pt]][c(2, 17, 18)]
       
-               fitAttempt                    <- NA; # clear the decks
-           try(fitAttempt                    <- optim(fn = wrapper_RW, #change to WSLS for last 4 parm fit
-                                                     par = tryP, 
-                                                     data = data,
-                                                     scbeta0 = -1
-                                                     ))
-      loglik <- NA; 
-      try( loglik <- -wrapper_RW(fitAttempt$par, data, scbeta = NA));
+         fitAttempt                    <- NA; # clear the decks
+         fitAttempt                    <- optim(fn = wrapper_RW, #change to WSLS for last 4 parm fit
+                                               par = tryP, 
+                                               data = data,
+                                               scbeta0 = -1
+                                               )
+         loglik <- NA; 
+         loglik <- -wrapper_RW(fitAttempt$par, data, scbeta = NA);
           
-          try(data.frame(
+         data.frame(
                      ID    = FitRecoveredData[[pt]][1,1],
                     tauRec = fitAttempt$par[1],
                     lrcRec = fitAttempt$par[2],
@@ -988,15 +988,15 @@ recover_prob5 <- foreach(pt=1:n2do, .combine = rbind) %dopar% { # multicore func
                     salRec = fitAttempt$par[4],
                     memRec = fitAttempt$par[5],
                     
-                    tau    = FitRecoveredData[[pt]][1, 39],
-                    lrc    = FitRecoveredData[[pt]][1, 40],
-                    res    = FitRecoveredData[[pt]][1, 41],
-                    sal    = FitRecoveredData[[pt]][1, 42], #add for four parms
-                    mem    = FitRecoveredData[[pt]][1, 43], #add for five parms
+                    tau    = FitRecoveredData[[pt]][1, 'tau'],
+                    lrc    = FitRecoveredData[[pt]][1, 'lrc'],
+                    res    = FitRecoveredData[[pt]][1, 'res'],
+                    sal    = FitRecoveredData[[pt]][1, 'sal'], #add for four parms
+                    mem    = FitRecoveredData[[pt]][1, 'mem'], #add for five parms
 
                     lp  = -fitAttempt$value,
                     ll  = loglik,
-                    Persec = FitRecoveredData[[pt]][1,30]))
+                    Persec = FitRecoveredData[[pt]][1,30])
 
 }
 
@@ -1005,7 +1005,7 @@ correlations5 <- recover_prob5 %>%
   distinct() %>%
   mutate(across(1:10, ~as.numeric(.x))) %>%
   dplyr::select(1:10) %>%
-  stats::cor(method = 'spearman')
+  stats::cor()
   
 recover_matrix5 <- ggcorrplot::ggcorrplot(correlations5[6:10, 1:5], lab = T)
 
@@ -1081,7 +1081,7 @@ ggplot(PEplot %>% pivot_longer(44:45, names_to = "Trait", values_to = "Values"))
 #all parms visualised
 
 ggplot(PEplot %>% 
-         pivot_longer(39:43, names_to = "Parameter", values_to = "Metric") %>%
+         pivot_longer(31:35, names_to = "Parameter", values_to = "Metric") %>%
          ungroup() %>%
          dplyr::select(Parameter, Metric, ID, PersecOrd) %>%
          mutate(Parameter = factor(Parameter, levels = c('tau', 'lrc', 'res', 'sal', 'mem')))%>%
@@ -1112,12 +1112,37 @@ ggplot(PEplot %>%
     legend.position = 'none'
   )
 
-#Behavioural reproduction
-main1_real <- ggplot(
-  FitRealBehav_df  %>%
+FitRealBehav_df %>% 
+  dplyr::select(ID, Trial, Action) %>%
+  distinct() %>%
+  group_by(ID, Trial > 30) %>% 
+  mutate(
+         count_act1 = ifelse(Action == 1, 1, 0), 
+         count_act1 = sum(count_act1)/30, 
+         count_act2 = ifelse(Action == 2, 1, 0), 
+         count_act2 = sum(count_act2)/30, 
+         count_act3 = ifelse(Action == 3, 1, 0), 
+         count_act3 = sum(count_act3)/30,
+         Block = ifelse(Trial > 30, 2, 1)) %>% 
+  pivot_longer(count_act1:count_act3, 'actionC', values_to = 'sumaction') %>%
+  ungroup() %>%
+  dplyr::select(ID, actionC, sumaction, Block)%>%
+  distinct() %>%
+  
+  ggplot(aes(factor(Block), sumaction, fill = actionC))+
+  geom_boxplot(width = 0.2)+
+  ggpubr::stat_compare_means()+
+  theme_bw()
+
+simplot <-  FitRealBehav_df  %>%
     as.data.frame() %>%
+    dplyr::select(ID, Trial, Action, Q1, Q2, Q3, simQ1, simQ2, simQ3) %>%
+    distinct() %>%
+    #mutate(Q4 = ifelse(Trial > 30, Q1, Q2),
+    #       Q1 = ifelse(Trial > 30, Q2, Q1),
+    #       Q2 = Q4) %>%
     pivot_longer(
-      c(5:7, 14:16),
+      c(4:9),
       names_to = "Q",
       values_to = "Value"
     ) %>%
@@ -1126,6 +1151,10 @@ main1_real <- ggplot(
                  levels = c("Q1", "simQ1", "Q2", "simQ2", "Q3", "simQ3"),
                  ordered = T)
     )
+
+#Behavioural reproduction
+main1_real <- ggplot(
+simplot 
 ) +
   stat_summary(aes(Trial, Value, color = Q), geom = "line")+
   stat_summary(aes(Trial, Value, color = Q), 
@@ -1134,7 +1163,6 @@ main1_real <- ggplot(
                fun.args=list(conf.int=0.95),
                alpha = 0.1)+
   labs(
-    #title = "Blue points = mean action | Black points = mean rewards",
     x = "Trial",
     y = "Expected Value")+
   theme_minimal()+
@@ -1148,7 +1176,8 @@ main1_real <- ggplot(
 main1_real 
 
 #plot Figure S4
-((main1_real | recover_matrix5_plot) / BICPLOT) & plot_annotation(tag_levels = 'A')
+((main1_real | recover_matrix5_plot) / BICPLOT) & plot_annotation(tag_levels = 'A') &
+  theme(axis.title = element_text(size = 14), axis.text = element_text(size = 14))
 #
 
 FitRealBehav_df %>%
@@ -1158,7 +1187,7 @@ FitRealBehav_df %>%
   ggcorrplot::ggcorrplot(lab = T)
 
 FitRealBehav_df %>%
-  pivot_longer(39:43, names_to = "Parm", values_to = "Value") %>%
+  pivot_longer(31:35, names_to = "Parm", values_to = "Value") %>%
   dplyr::select(Parm, Value, Persec, ICARTot) %>%
   pivot_longer(3:4, names_to = "Trait", values_to = "Score") %>%
   mutate(Parm = factor(Parm)) %>%
@@ -1196,7 +1225,7 @@ ModelP8 <- FitRealBehav_df %>%
                      mutate(sumLL = sum(ll)) %>% 
                      dplyr::select(sumLL, Persec, ID, tau, Age, Sex, Control, ICARTot) %>% 
                      distinct()
-model.compare(lm(scale(Persec) ~ scale(tau) + scale(ICARTot) + Age + Sex + Control + sumLL,
+summary(lm(scale(Persec) ~ scale(tau) + scale(ICARTot) + Age + Sex + Control + sumLL,
                          data = ModelP8,
                          na.action = na.fail))
 
