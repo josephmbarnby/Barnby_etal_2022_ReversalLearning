@@ -4,9 +4,10 @@ Assessment of reversal learning across probabilistic and social inference tasks.
 ### Move to the 'master' branch for all code and data
 
 ## Summary
+![Experimental Design](Figure1_SDRP.png)
 
 The preprint can be found here:
-
+https://psyarxiv.com/x4d3f/
 
 # Computational Models
 
